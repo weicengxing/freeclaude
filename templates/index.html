@@ -111,6 +111,36 @@
             letter-spacing: 0.02em;
         }
 
+        .key-tools {
+            padding: 0 20px 16px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            border-bottom: 1px solid rgba(255,255,255,0.1);
+        }
+
+        .sidebar-secondary-btn {
+            width: 100%;
+            background: rgba(255, 255, 255, 0.08);
+            border: 1px solid rgba(255, 255, 255, 0.14);
+            color: white;
+            padding: 10px 12px;
+            border-radius: 12px;
+            cursor: pointer;
+            text-align: left;
+        }
+
+        .sidebar-secondary-btn:hover:not(:disabled) {
+            background: rgba(255, 255, 255, 0.14);
+        }
+
+        .key-meta {
+            font-size: 0.76rem;
+            color: #9ca3af;
+            line-height: 1.4;
+            word-break: break-word;
+        }
+
         .select-shell {
             position: relative;
         }
@@ -559,6 +589,10 @@
                     </div>
                 </div>
             </div>
+            <div class="key-tools">
+                <button id="import-keys-btn" class="sidebar-secondary-btn" type="button">从 GitHub 导入 Key</button>
+                <div id="key-meta" class="key-meta">Key 数量：加载中...</div>
+            </div>
             <div id="session-list" class="session-list"></div>
         </aside>
 
@@ -598,6 +632,8 @@
             messages: [],
             sending: false,
             currentAssistantMessageId: null,
+            importingKeys: false,
+            keyCount: 0,
         };
 
         const sessionListEl = document.getElementById("session-list");
@@ -612,6 +648,8 @@
         const sendBtnEl = document.getElementById("send-btn");
         const renameSessionBtnEl = document.getElementById("rename-session-btn");
         const deleteSessionBtnEl = document.getElementById("delete-session-btn");
+        const importKeysBtnEl = document.getElementById("import-keys-btn");
+        const keyMetaEl = document.getElementById("key-meta");
 
         function uid() {
             return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
@@ -651,6 +689,12 @@
             statusTextEl.textContent = text;
         }
 
+        function renderKeyMeta(sourceUrl = null) {
+            const sourceText = sourceUrl || "https://github.com/weicengxing/freeclaude/blob/main/key.txt";
+            keyMetaEl.innerHTML = `Key 数量：${state.keyCount}<br>来源：${escapeHtml(sourceText)}`;
+            importKeysBtnEl.disabled = state.sending || state.importingKeys;
+        }
+
         function syncSessionActions() {
             const hasSession = Boolean(state.sessionId);
             renameSessionBtnEl.disabled = !hasSession || state.sending;
@@ -678,6 +722,7 @@
             modelSelectButtonEl.disabled = isSending;
             setStatus(isSending ? "正在思考..." : "准备就绪");
             syncSessionActions();
+            renderKeyMeta();
         }
 
         function scrollMessagesToBottom() {
@@ -794,6 +839,36 @@
             const response = await fetch("/api/sessions");
             state.sessions = await response.json();
             renderSessions();
+        }
+
+        async function refreshKeyStatus() {
+            const response = await fetch("/api/keys");
+            const data = await response.json();
+            state.keyCount = data.total_keys || 0;
+            renderKeyMeta(data.source_url);
+        }
+
+        async function importKeysFromGithub() {
+            state.importingKeys = true;
+            renderKeyMeta();
+            setStatus("正在从 GitHub 导入 key...");
+            try {
+                const response = await fetch("/api/keys/import", {
+                    method: "POST",
+                });
+                const data = await response.json();
+                if (!response.ok) {
+                    throw new Error(data.detail || "导入 key 失败");
+                }
+                state.keyCount = data.total_keys || state.keyCount;
+                renderKeyMeta(data.source_url);
+                setStatus(`导入完成：新增 ${data.inserted_count} 个，跳过 ${data.ignored_count} 个`);
+            } catch (error) {
+                setStatus(error.message || "导入 key 失败");
+            } finally {
+                state.importingKeys = false;
+                renderKeyMeta();
+            }
         }
 
         async function createSession() {
@@ -1076,6 +1151,10 @@
             await deleteSession();
         });
 
+        importKeysBtnEl.addEventListener("click", async () => {
+            await importKeysFromGithub();
+        });
+
         modelSelectButtonEl.addEventListener("click", () => {
             if (state.sending) {
                 return;
@@ -1111,6 +1190,8 @@
         async function init() {
             setSelectedModel(modelSelectButtonEl.textContent.trim());
             syncSessionActions();
+            renderKeyMeta();
+            await refreshKeyStatus();
             await refreshSessions();
             if (state.sessions.length) {
                 await loadSession(state.sessions[0].id, true);

@@ -5,6 +5,7 @@ from contextlib import closing
 from datetime import datetime
 from pathlib import Path
 
+import httpx
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -16,6 +17,7 @@ from uuapi_client import DEFAULT_MODEL, SUPPORTED_MODELS, iter_stream_chat, norm
 
 BASE_DIR = Path(__file__).resolve().parent
 DB_PATH = BASE_DIR / "chat_app.db"
+DEFAULT_KEY_SOURCE_URL = "https://github.com/weicengxing/freeclaude/blob/main/key.txt"
 
 app = FastAPI(title="UUAPI Web Chat")
 app.mount("/static", StaticFiles(directory=str(BASE_DIR / "static")), name="static")
@@ -71,6 +73,16 @@ def init_db() -> None:
                 created_at TEXT NOT NULL,
                 FOREIGN KEY (session_id) REFERENCES sessions(id)
             );
+
+            CREATE TABLE IF NOT EXISTS api_keys (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                api_key TEXT NOT NULL,
+                source_url TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            );
+
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_api_keys_api_key
+            ON api_keys(api_key);
             """
         )
         connection.commit()
@@ -197,6 +209,83 @@ def trim_title(title: str) -> str:
     return compact[:200] or "New Chat"
 
 
+def normalize_github_raw_url(url: str) -> str:
+    stripped = url.strip()
+    if not stripped:
+        raise HTTPException(status_code=400, detail="Key source URL cannot be empty")
+
+    if stripped.startswith("https://raw.githubusercontent.com/"):
+        return stripped
+
+    marker = "https://github.com/"
+    if stripped.startswith(marker) and "/blob/" in stripped:
+        path = stripped[len(marker):]
+        owner_repo, remainder = path.split("/blob/", 1)
+        return f"https://raw.githubusercontent.com/{owner_repo}/{remainder}"
+
+    raise HTTPException(status_code=400, detail="Unsupported GitHub URL")
+
+
+def parse_api_keys_from_text(raw_text: str) -> list[str]:
+    unique_keys: list[str] = []
+    seen: set[str] = set()
+    for line in raw_text.splitlines():
+        key = line.strip()
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        unique_keys.append(key)
+    return unique_keys
+
+
+def import_api_keys_from_url(connection: sqlite3.Connection, source_url: str) -> dict:
+    raw_url = normalize_github_raw_url(source_url)
+    try:
+        response = httpx.get(raw_url, timeout=30.0, follow_redirects=True)
+        response.raise_for_status()
+    except httpx.HTTPError as exc:
+        raise HTTPException(status_code=502, detail=f"Failed to fetch key file: {exc}") from exc
+
+    parsed_keys = parse_api_keys_from_text(response.text)
+    if not parsed_keys:
+        raise HTTPException(status_code=400, detail="No valid keys found in the source file")
+
+    inserted_count = 0
+    now = utc_now()
+    for api_key in parsed_keys:
+        cursor = connection.execute(
+            """
+            INSERT OR IGNORE INTO api_keys (api_key, source_url, created_at)
+            VALUES (?, ?, ?)
+            """,
+            (api_key, source_url, now),
+        )
+        inserted_count += cursor.rowcount
+    connection.commit()
+
+    total_keys = connection.execute("SELECT COUNT(*) AS count FROM api_keys").fetchone()["count"]
+    return {
+        "source_url": source_url,
+        "raw_url": raw_url,
+        "read_count": len(parsed_keys),
+        "inserted_count": inserted_count,
+        "ignored_count": len(parsed_keys) - inserted_count,
+        "total_keys": total_keys,
+    }
+
+
+def get_latest_api_key(connection: sqlite3.Connection) -> str | None:
+    row = connection.execute(
+        """
+        SELECT api_key
+        FROM api_keys
+        ORDER BY id DESC
+        LIMIT 1
+        """
+    ).fetchone()
+    return row["api_key"] if row is not None else None
+
+
 def build_request_messages(history: list[dict]) -> list[dict[str, str]]:
     return [{"role": item["role"], "content": item["content"]} for item in history]
 
@@ -246,6 +335,7 @@ def send_and_persist_reply(
             messages=request_messages,
             model=model,
             session_id=session_id,
+            api_key=get_latest_api_key(connection),
         )
     except Exception as exc:
         # Roll back the newly inserted user message so persisted history always matches AI history.
@@ -310,6 +400,22 @@ def api_models() -> dict:
         "models": sorted(SUPPORTED_MODELS),
         "default_model": DEFAULT_MODEL,
     }
+
+
+@app.get("/api/keys")
+def api_keys_status() -> dict:
+    with closing(get_connection()) as connection:
+        total_keys = connection.execute("SELECT COUNT(*) AS count FROM api_keys").fetchone()["count"]
+    return {
+        "source_url": DEFAULT_KEY_SOURCE_URL,
+        "total_keys": total_keys,
+    }
+
+
+@app.post("/api/keys/import")
+def api_import_keys() -> dict:
+    with closing(get_connection()) as connection:
+        return import_api_keys_from_url(connection, DEFAULT_KEY_SOURCE_URL)
 
 
 @app.get("/api/sessions")
@@ -464,6 +570,7 @@ def api_chat_stream(payload: ChatRequest) -> StreamingResponse:
 
         should_autobuild_title = not history_before and (current_session is None or current_session["title"] == "New Chat")
         title = build_title(message_text) if should_autobuild_title else None
+        selected_api_key = get_latest_api_key(connection)
         request_messages = [
             {"role": item["role"], "content": item["content"]}
             for item in [*history_before, {"role": "user", "content": message_text}]
@@ -487,6 +594,7 @@ def api_chat_stream(payload: ChatRequest) -> StreamingResponse:
                 messages=request_messages,
                 model=payload.model,
                 session_id=payload.session_id,
+                api_key=selected_api_key,
             ):
                 response_model = chunk.get("data", {}).get("model", response_model)
                 text_delta = extract_stream_text(chunk)
