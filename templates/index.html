@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>UUAPI 问答界面</title>
+    <link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+    <div class="layout">
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <h1>UUAPI Chat</h1>
+                <button id="new-chat-btn" type="button">新开对话</button>
+            </div>
+            <div class="model-picker">
+                <label for="model-select">模型</label>
+                <select id="model-select">
+                    {% for model in models %}
+                    <option value="{{ model }}" {% if model == default_model %}selected{% endif %}>{{ model }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div id="session-list" class="session-list"></div>
+        </aside>
+
+        <main class="chat-panel">
+            <header class="chat-header">
+                <div>
+                    <div class="chat-title" id="chat-title">新对话</div>
+                    <div class="chat-subtitle" id="chat-subtitle">历史消息会按 session_id 保留</div>
+                </div>
+            </header>
+
+            <section id="messages" class="messages"></section>
+
+            <form id="chat-form" class="composer">
+                <textarea id="message-input" rows="4" placeholder="输入你的问题，按 Ctrl+Enter 发送"></textarea>
+                <div class="composer-actions">
+                    <span id="status-text" class="status-text">准备就绪</span>
+                    <button id="send-btn" type="submit">发送</button>
+                </div>
+            </form>
+        </main>
+    </div>
+
+    <script>
+        const state = {
+            sessionId: null,
+            sessions: [],
+            sending: false,
+        };
+
+        const sessionListEl = document.getElementById("session-list");
+        const messagesEl = document.getElementById("messages");
+        const chatTitleEl = document.getElementById("chat-title");
+        const chatSubtitleEl = document.getElementById("chat-subtitle");
+        const modelSelectEl = document.getElementById("model-select");
+        const messageInputEl = document.getElementById("message-input");
+        const statusTextEl = document.getElementById("status-text");
+        const sendBtnEl = document.getElementById("send-btn");
+
+        function escapeHtml(text) {
+            return text
+                .replaceAll("&", "&amp;")
+                .replaceAll("<", "&lt;")
+                .replaceAll(">", "&gt;")
+                .replaceAll('"', "&quot;");
+        }
+
+        function setStatus(text) {
+            statusTextEl.textContent = text;
+        }
+
+        function setSending(isSending) {
+            state.sending = isSending;
+            sendBtnEl.disabled = isSending;
+            messageInputEl.disabled = isSending;
+            modelSelectEl.disabled = isSending;
+            setStatus(isSending ? "Claude 正在思考..." : "准备就绪");
+        }
+
+        function renderMessages(messages) {
+            if (!messages.length) {
+                messagesEl.innerHTML = '<div class="empty-state">这里还没有消息，开始第一轮提问吧。</div>';
+                return;
+            }
+
+            messagesEl.innerHTML = messages.map((message) => `
+                <article class="message ${message.role}">
+                    <div class="message-role">${message.role === "user" ? "你" : "Claude"}</div>
+                    <div class="message-content">${escapeHtml(message.content).replaceAll("\n", "<br>")}</div>
+                </article>
+            `).join("");
+            messagesEl.scrollTop = messagesEl.scrollHeight;
+        }
+
+        function renderSessions() {
+            if (!state.sessions.length) {
+                sessionListEl.innerHTML = '<div class="empty-sessions">还没有历史会话</div>';
+                return;
+            }
+
+            sessionListEl.innerHTML = state.sessions.map((session) => `
+                <button
+                    class="session-item ${session.id === state.sessionId ? "active" : ""}"
+                    type="button"
+                    data-session-id="${session.id}"
+                    data-model="${session.model}"
+                >
+                    <span class="session-title">${escapeHtml(session.title)}</span>
+                    <span class="session-meta">${escapeHtml(session.model)}</span>
+                </button>
+            `).join("");
+
+            sessionListEl.querySelectorAll(".session-item").forEach((button) => {
+                button.addEventListener("click", () => {
+                    loadSession(button.dataset.sessionId, true);
+                });
+            });
+        }
+
+        async function refreshSessions() {
+            const response = await fetch("/api/sessions");
+            state.sessions = await response.json();
+            renderSessions();
+        }
+
+        async function createSession() {
+            const response = await fetch("/api/sessions", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ model: modelSelectEl.value }),
+            });
+            const session = await response.json();
+            state.sessionId = session.id;
+            chatTitleEl.textContent = session.title;
+            chatSubtitleEl.textContent = session.id;
+            renderMessages([]);
+            await refreshSessions();
+        }
+
+        async function loadSession(sessionId, syncModel = false) {
+            const response = await fetch(`/api/sessions/${sessionId}`);
+            if (!response.ok) {
+                setStatus("读取会话失败");
+                return;
+            }
+
+            const data = await response.json();
+            state.sessionId = data.session.id;
+            chatTitleEl.textContent = data.session.title;
+            chatSubtitleEl.textContent = data.session.id;
+            if (syncModel) {
+                modelSelectEl.value = data.session.model;
+            }
+            renderMessages(data.messages);
+            renderSessions();
+        }
+
+        async function sendMessage() {
+            const message = messageInputEl.value.trim();
+            if (!message || state.sending) {
+                return;
+            }
+
+            if (!state.sessionId) {
+                await createSession();
+            }
+
+            setSending(true);
+
+            try {
+                const response = await fetch("/api/chat", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        session_id: state.sessionId,
+                        message,
+                        model: modelSelectEl.value,
+                    }),
+                });
+
+                const data = await response.json();
+                if (!response.ok) {
+                    throw new Error(data.detail || "发送失败");
+                }
+
+                state.sessionId = data.session.id;
+                chatTitleEl.textContent = data.session.title;
+                chatSubtitleEl.textContent = data.session.id;
+                modelSelectEl.value = data.session.model;
+                messageInputEl.value = "";
+                renderMessages(data.messages);
+                await refreshSessions();
+            } catch (error) {
+                setStatus(error.message || "发送失败");
+            } finally {
+                setSending(false);
+                messageInputEl.focus();
+            }
+        }
+
+        document.getElementById("new-chat-btn").addEventListener("click", async () => {
+            await createSession();
+            messageInputEl.focus();
+        });
+
+        document.getElementById("chat-form").addEventListener("submit", async (event) => {
+            event.preventDefault();
+            await sendMessage();
+        });
+
+        messageInputEl.addEventListener("keydown", async (event) => {
+            if (event.key === "Enter" && event.ctrlKey) {
+                event.preventDefault();
+                await sendMessage();
+            }
+        });
+
+        async function init() {
+            await refreshSessions();
+            if (state.sessions.length) {
+                await loadSession(state.sessions[0].id, true);
+            } else {
+                renderMessages([]);
+            }
+        }
+
+        init();
+    </script>
+</body>
+</html>

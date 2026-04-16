@@ -1,0 +1,4 @@
+fastapi
+httpx
+jinja2
+uvicorn
