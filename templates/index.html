@@ -1,9 +1,9 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>UUAPI 问答界面</title>
+    <title>UUAPI 对话界面</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
     <style>
         :root {
@@ -277,6 +277,36 @@
             margin-top: 4px;
         }
 
+        .chat-header-actions {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+        }
+
+        .header-action-btn {
+            border: 1px solid var(--border-color);
+            background: white;
+            color: var(--text-main);
+            padding: 8px 12px;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: background 0.2s, color 0.2s, border-color 0.2s;
+        }
+
+        .header-action-btn:hover:not(:disabled) {
+            background: #f3f4f6;
+        }
+
+        .header-action-btn.danger {
+            color: #dc2626;
+            border-color: #fecaca;
+        }
+
+        .header-action-btn.danger:hover:not(:disabled) {
+            background: #fee2e2;
+            color: #b91c1c;
+        }
+
         .messages {
             flex: 1;
             overflow-y: auto;
@@ -332,6 +362,66 @@
             color: var(--text-main);
             word-break: break-word;
             white-space: pre-wrap;
+        }
+
+        .message-top {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+        }
+
+        .message-actions {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: flex-end;
+            gap: 8px;
+        }
+
+        .message-action-btn {
+            border: 1px solid var(--border-color);
+            background: white;
+            color: var(--text-main);
+            padding: 6px 10px;
+            border-radius: 8px;
+            cursor: pointer;
+        }
+
+        .message-action-btn.danger {
+            color: #dc2626;
+            border-color: #fecaca;
+        }
+
+        .message-action-btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+
+        .session-row {
+            display: grid;
+            grid-template-columns: 1fr auto;
+            gap: 8px;
+            align-items: start;
+        }
+
+        .session-actions {
+            display: flex;
+            gap: 4px;
+            padding-top: 8px;
+        }
+
+        .session-action-btn {
+            border: none;
+            background: transparent;
+            color: #c4c7d0;
+            padding: 6px 8px;
+            border-radius: 8px;
+            cursor: pointer;
+        }
+
+        .session-action-btn:hover:not(:disabled) {
+            background: rgba(255, 255, 255, 0.08);
+            color: white;
         }
 
         .composer-container {
@@ -446,7 +536,7 @@
     <div class="layout">
         <aside class="sidebar">
             <div class="sidebar-header">
-                <h1>ZYZ,ZZP NB!!!</h1>
+                <h1>UUAPI Chat</h1>
                 <button id="new-chat-btn" type="button">
                     <svg stroke="currentColor" fill="none" stroke-width="2" viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round" height="16" width="16" xmlns="http://www.w3.org/2000/svg"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
                     新对话
@@ -478,13 +568,17 @@
                     <div class="chat-title" id="chat-title">新对话</div>
                     <div class="chat-subtitle" id="chat-subtitle">历史消息会按 session_id 保留</div>
                 </div>
+                <div class="chat-header-actions">
+                    <button id="rename-session-btn" class="header-action-btn" type="button" disabled>重命名</button>
+                    <button id="delete-session-btn" class="header-action-btn danger" type="button" disabled>删除会话</button>
+                </div>
             </header>
 
             <section id="messages" class="messages"></section>
 
             <div class="composer-container">
                 <form id="chat-form" class="composer">
-                    <textarea id="message-input" rows="3" placeholder="输入你的问题，按 Ctrl+Enter 发送..."></textarea>
+                    <textarea id="message-input" rows="3" placeholder="输入你的问题，按 Ctrl+Enter 发送"></textarea>
                     <div class="composer-actions">
                         <span id="status-text" class="status-text">准备就绪</span>
                         <button id="send-btn" type="submit">
@@ -516,6 +610,8 @@
         const messageInputEl = document.getElementById("message-input");
         const statusTextEl = document.getElementById("status-text");
         const sendBtnEl = document.getElementById("send-btn");
+        const renameSessionBtnEl = document.getElementById("rename-session-btn");
+        const deleteSessionBtnEl = document.getElementById("delete-session-btn");
 
         function uid() {
             return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
@@ -534,7 +630,7 @@
         }
 
         function escapeHtml(text) {
-            return text
+            return (text || "")
                 .replaceAll("&", "&amp;")
                 .replaceAll("<", "&lt;")
                 .replaceAll(">", "&gt;")
@@ -543,12 +639,10 @@
 
         function cleanAssistantText(text, role) {
             if (role !== "assistant") {
-                return text;
+                return text || "";
             }
 
-            return text
-                .replace(/\*/g, "")
-                .replace(/#/g, "")
+            return (text || "")
                 .replace(/\n{3,}/g, "\n\n")
                 .trim();
         }
@@ -557,12 +651,33 @@
             statusTextEl.textContent = text;
         }
 
+        function syncSessionActions() {
+            const hasSession = Boolean(state.sessionId);
+            renameSessionBtnEl.disabled = !hasSession || state.sending;
+            deleteSessionBtnEl.disabled = !hasSession || state.sending;
+        }
+
+        function applySession(session) {
+            if (!session) {
+                state.sessionId = null;
+                chatTitleEl.textContent = "新对话";
+                chatSubtitleEl.textContent = "历史消息会按 session_id 保留";
+            } else {
+                state.sessionId = session.id;
+                chatTitleEl.textContent = session.title;
+                chatSubtitleEl.textContent = session.id;
+                setSelectedModel(session.model);
+            }
+            syncSessionActions();
+        }
+
         function setSending(isSending) {
             state.sending = isSending;
             sendBtnEl.disabled = isSending;
             messageInputEl.disabled = isSending;
             modelSelectButtonEl.disabled = isSending;
             setStatus(isSending ? "正在思考..." : "准备就绪");
+            syncSessionActions();
         }
 
         function scrollMessagesToBottom() {
@@ -577,19 +692,45 @@
 
             messagesEl.innerHTML = messages.map((message) => {
                 const isUser = message.role === "user";
-                const avatarText = isUser ? "我" : "AI";
+                const avatarText = isUser ? "用户" : "AI";
                 const roleClass = isUser ? "user" : "assistant";
                 const displayText = cleanAssistantText(message.content, message.role);
+                const editButton = isUser
+                    ? `<button type="button" class="message-action-btn" data-action="edit-resend" data-message-id="${message.id}" ${state.sending ? "disabled" : ""}>编辑后重发</button>`
+                    : "";
+                const deleteButton = `<button type="button" class="message-action-btn danger" data-action="delete-from" data-message-id="${message.id}" ${state.sending ? "disabled" : ""}>从此删除</button>`;
 
                 return `
                 <div class="message-wrapper ${roleClass}">
                     <div class="message-inner">
-                        <div class="avatar">${avatarText}</div>
+                        <div class="message-top">
+                            <div class="avatar">${avatarText}</div>
+                            <div class="message-actions">
+                                ${editButton}
+                                ${deleteButton}
+                            </div>
+                        </div>
                         <div class="message-content-box">${escapeHtml(displayText).replaceAll("\n", "<br>")}</div>
                     </div>
                 </div>
             `;
             }).join("");
+
+            messagesEl.querySelectorAll('[data-action="delete-from"]').forEach((button) => {
+                button.addEventListener("click", async () => {
+                    await deleteMessageFrom(Number(button.dataset.messageId));
+                });
+            });
+
+            messagesEl.querySelectorAll('[data-action="edit-resend"]').forEach((button) => {
+                button.addEventListener("click", async () => {
+                    const targetMessage = state.messages.find((item) => item.id === Number(button.dataset.messageId));
+                    if (targetMessage) {
+                        await editAndResendMessage(targetMessage);
+                    }
+                });
+            });
+
             scrollMessagesToBottom();
         }
 
@@ -614,20 +755,37 @@
             }
 
             sessionListEl.innerHTML = state.sessions.map((session) => `
-                <button
-                    class="session-item ${session.id === state.sessionId ? "active" : ""}"
-                    type="button"
-                    data-session-id="${session.id}"
-                    data-model="${session.model}"
-                >
-                    <span class="session-title">${escapeHtml(session.title)}</span>
-                    <span class="session-meta">${escapeHtml(session.model)}</span>
-                </button>
+                <div class="session-row">
+                    <button
+                        class="session-item ${session.id === state.sessionId ? "active" : ""}"
+                        type="button"
+                        data-session-id="${session.id}"
+                    >
+                        <span class="session-title">${escapeHtml(session.title)}</span>
+                        <span class="session-meta">${escapeHtml(session.model)}</span>
+                    </button>
+                    <div class="session-actions">
+                        <button class="session-action-btn" type="button" data-session-action="rename" data-session-id="${session.id}" ${state.sending ? "disabled" : ""}>改名</button>
+                        <button class="session-action-btn" type="button" data-session-action="delete" data-session-id="${session.id}" ${state.sending ? "disabled" : ""}>删</button>
+                    </div>
+                </div>
             `).join("");
 
             sessionListEl.querySelectorAll(".session-item").forEach((button) => {
-                button.addEventListener("click", () => {
-                    loadSession(button.dataset.sessionId, true);
+                button.addEventListener("click", async () => {
+                    await loadSession(button.dataset.sessionId, true);
+                });
+            });
+
+            sessionListEl.querySelectorAll('[data-session-action="rename"]').forEach((button) => {
+                button.addEventListener("click", async () => {
+                    await renameSession(button.dataset.sessionId);
+                });
+            });
+
+            sessionListEl.querySelectorAll('[data-session-action="delete"]').forEach((button) => {
+                button.addEventListener("click", async () => {
+                    await deleteSession(button.dataset.sessionId);
                 });
             });
         }
@@ -645,10 +803,8 @@
                 body: JSON.stringify({ model: getSelectedModel() }),
             });
             const session = await response.json();
-            state.sessionId = session.id;
             state.messages = [];
-            chatTitleEl.textContent = session.title;
-            chatSubtitleEl.textContent = session.id;
+            applySession(session);
             renderMessages([]);
             await refreshSessions();
         }
@@ -661,15 +817,155 @@
             }
 
             const data = await response.json();
-            state.sessionId = data.session.id;
             state.messages = data.messages;
-            chatTitleEl.textContent = data.session.title;
-            chatSubtitleEl.textContent = data.session.id;
+            applySession(data.session);
             if (syncModel) {
                 setSelectedModel(data.session.model);
             }
             renderMessages(state.messages);
             renderSessions();
+        }
+
+        async function renameSession(sessionId = state.sessionId) {
+            const session = state.sessions.find((item) => item.id === sessionId);
+            if (!session) {
+                return;
+            }
+
+            const nextTitle = window.prompt("输入新的会话标题", session.title);
+            if (nextTitle === null) {
+                return;
+            }
+
+            const trimmed = nextTitle.trim();
+            if (!trimmed) {
+                setStatus("标题不能为空");
+                return;
+            }
+
+            const response = await fetch(`/api/sessions/${sessionId}`, {
+                method: "PATCH",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ title: trimmed }),
+            });
+            const data = await response.json();
+            if (!response.ok) {
+                setStatus(data.detail || "重命名失败");
+                return;
+            }
+
+            if (state.sessionId === sessionId) {
+                applySession(data.session);
+            }
+            await refreshSessions();
+            setStatus("会话标题已更新");
+        }
+
+        async function deleteSession(sessionId = state.sessionId) {
+            const session = state.sessions.find((item) => item.id === sessionId);
+            if (!session) {
+                return;
+            }
+
+            if (!window.confirm(`确定删除会话「${session.title}」吗？这会删除整段历史记录。`)) {
+                return;
+            }
+
+            const response = await fetch(`/api/sessions/${sessionId}`, { method: "DELETE" });
+            if (!response.ok) {
+                const data = await response.json();
+                setStatus(data.detail || "删除会话失败");
+                return;
+            }
+
+            const wasCurrent = state.sessionId === sessionId;
+            await refreshSessions();
+            if (wasCurrent) {
+                if (state.sessions.length) {
+                    await loadSession(state.sessions[0].id, true);
+                } else {
+                    state.messages = [];
+                    applySession(null);
+                    renderMessages([]);
+                    renderSessions();
+                }
+            }
+            setStatus("会话已删除");
+        }
+
+        async function deleteMessageFrom(messageId) {
+            if (!state.sessionId) {
+                return;
+            }
+
+            if (!window.confirm("确定从这条消息开始删除吗？该消息以及后面的所有对话都会被移除。")) {
+                return;
+            }
+
+            setSending(true);
+            try {
+                const response = await fetch(`/api/sessions/${state.sessionId}/messages/${messageId}`, {
+                    method: "DELETE",
+                });
+                const data = await response.json();
+                if (!response.ok) {
+                    throw new Error(data.detail || "删除失败");
+                }
+
+                state.messages = data.messages || [];
+                applySession(data.session);
+                renderMessages(state.messages);
+                await refreshSessions();
+                setStatus("消息已删除，历史上下文已同步更新");
+            } catch (error) {
+                setStatus(error.message || "删除失败");
+            } finally {
+                setSending(false);
+            }
+        }
+
+        async function editAndResendMessage(message) {
+            if (!state.sessionId) {
+                return;
+            }
+
+            const nextContent = window.prompt("修改后的内容会从这里重新发送，后续对话会被删除。", message.content);
+            if (nextContent === null) {
+                return;
+            }
+
+            const trimmed = nextContent.trim();
+            if (!trimmed) {
+                setStatus("消息不能为空");
+                return;
+            }
+
+            setSending(true);
+            try {
+                const response = await fetch(`/api/sessions/${state.sessionId}/messages/${message.id}/resend`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        message: trimmed,
+                        model: getSelectedModel(),
+                    }),
+                });
+                const data = await response.json();
+                if (!response.ok) {
+                    throw new Error(data.detail || "重发失败");
+                }
+
+                state.messages = data.messages || [];
+                applySession(data.session);
+                renderMessages(state.messages);
+                await refreshSessions();
+                setStatus("已按修改后的内容重新发送，后续历史已重建");
+            } catch (error) {
+                setStatus(error.message || "重发失败");
+            } finally {
+                setSending(false);
+                messageInputEl.focus();
+            }
         }
 
         async function sendMessage() {
@@ -739,9 +1035,7 @@
 
                         if (eventName === "start") {
                             if (payload.session) {
-                                state.sessionId = payload.session.id;
-                                chatTitleEl.textContent = payload.session.title;
-                                chatSubtitleEl.textContent = payload.session.id;
+                                applySession(payload.session);
                             }
                         } else if (eventName === "delta") {
                             assistantText += payload.text || "";
@@ -750,9 +1044,7 @@
                             assistantText = payload.reply || assistantText;
                             updateLocalMessage(state.currentAssistantMessageId, assistantText);
                             if (payload.session) {
-                                chatTitleEl.textContent = payload.session.title;
-                                chatSubtitleEl.textContent = payload.session.id;
-                                setSelectedModel(payload.session.model);
+                                applySession(payload.session);
                             }
                             await refreshSessions();
                         } else if (eventName === "error") {
@@ -761,9 +1053,8 @@
                     }
                 }
             } catch (error) {
-                if (state.currentAssistantMessageId) {
-                    updateLocalMessage(state.currentAssistantMessageId, `请求失败：${error.message || "发送失败"}`);
-                }
+                state.messages = state.messages.slice(0, -2);
+                renderMessages(state.messages);
                 setStatus(error.message || "发送失败");
             } finally {
                 state.currentAssistantMessageId = null;
@@ -775,6 +1066,14 @@
         document.getElementById("new-chat-btn").addEventListener("click", async () => {
             await createSession();
             messageInputEl.focus();
+        });
+
+        renameSessionBtnEl.addEventListener("click", async () => {
+            await renameSession();
+        });
+
+        deleteSessionBtnEl.addEventListener("click", async () => {
+            await deleteSession();
         });
 
         modelSelectButtonEl.addEventListener("click", () => {
@@ -811,11 +1110,13 @@
 
         async function init() {
             setSelectedModel(modelSelectButtonEl.textContent.trim());
+            syncSessionActions();
             await refreshSessions();
             if (state.sessions.length) {
                 await loadSession(state.sessions[0].id, true);
             } else {
                 state.messages = [];
+                applySession(null);
                 renderMessages([]);
             }
         }
@@ -824,3 +1125,5 @@
     </script>
 </body>
 </html>
+
+
