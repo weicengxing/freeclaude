@@ -1,7 +1,7 @@
 import json
 import os
 import uuid
-from typing import Any
+from typing import Any, Iterator
 
 import httpx
 
@@ -148,3 +148,52 @@ def send_chat(
             "text": extract_text(data),
             "raw": data,
         }
+
+
+def iter_stream_chat(
+    messages: list[dict[str, str]],
+    model: str,
+    session_id: str | None = None,
+    api_key: str | None = None,
+    base_url: str | None = None,
+) -> Iterator[dict[str, Any]]:
+    resolved_api_key = resolve_api_key(api_key)
+    if not resolved_api_key:
+        raise RuntimeError("Missing UUAPI API key. Set UUAPI_API_KEY or CLAUDE_PROXY_UPSTREAM_API_KEY.")
+
+    resolved_session_id = session_id or str(uuid.uuid4())
+    payload = build_payload(messages, model, resolved_session_id, stream=True)
+    headers = build_headers(resolved_api_key, resolved_session_id)
+    headers["accept"] = "text/event-stream"
+    url = f"{(base_url or DEFAULT_BASE_URL).rstrip('/')}/v1/messages?beta=true"
+    timeout = httpx.Timeout(connect=30.0, read=300.0, write=300.0, pool=30.0)
+
+    with httpx.Client(timeout=timeout) as client:
+        with client.stream("POST", url, headers=headers, json=payload) as response:
+            response.raise_for_status()
+            current_event = "message"
+
+            for raw_line in response.iter_lines():
+                if not raw_line:
+                    continue
+
+                line = raw_line.strip()
+                if not line:
+                    continue
+
+                if line.startswith("event:"):
+                    current_event = line.split(":", 1)[1].strip()
+                    continue
+
+                if not line.startswith("data:"):
+                    continue
+
+                data_str = line.split(":", 1)[1].strip()
+                if not data_str or data_str == "[DONE]":
+                    continue
+
+                yield {
+                    "event": current_event,
+                    "data": json.loads(data_str),
+                    "session_id": resolved_session_id,
+                }

@@ -4,22 +4,470 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>UUAPI 问答界面</title>
-    <link rel="stylesheet" href="/static/app.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --sidebar-bg: #202123;
+            --sidebar-hover: #2A2B32;
+            --sidebar-text: #ececf1;
+            --main-bg: #ffffff;
+            --chat-bg: #f7f7f8;
+            --primary-color: #10a37f;
+            --primary-hover: #1a7f64;
+            --text-main: #343541;
+            --text-muted: #8e8ea0;
+            --border-color: #e5e5e5;
+            --user-bubble: #10a37f;
+            --ai-bubble: #f3f4f6;
+            --select-bg: linear-gradient(180deg, #383947 0%, #2b2d38 100%);
+            --select-ring: rgba(139, 92, 246, 0.18);
+            --select-border: rgba(167, 139, 250, 0.42);
+            --select-shadow: rgba(9, 10, 15, 0.42);
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: var(--main-bg);
+            color: var(--text-main);
+            height: 100vh;
+            overflow: hidden;
+            display: flex;
+        }
+
+        ::-webkit-scrollbar { width: 8px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #d1d5db; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #9ca3af; }
+
+        .layout {
+            display: flex;
+            width: 100%;
+            height: 100vh;
+        }
+
+        .sidebar {
+            width: 280px;
+            background-color: var(--sidebar-bg);
+            color: var(--sidebar-text);
+            display: flex;
+            flex-direction: column;
+            transition: transform 0.3s ease;
+            flex-shrink: 0;
+        }
+
+        .sidebar-header {
+            padding: 20px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .sidebar-header h1 {
+            font-size: 1.45rem;
+            font-weight: 800;
+            line-height: 1.05;
+            letter-spacing: 0.2px;
+            background: linear-gradient(90deg, #ffffff 0%, #c4b5fd 50%, #86efac 100%);
+            -webkit-background-clip: text;
+            background-clip: text;
+            color: transparent;
+        }
+
+        #new-chat-btn {
+            background-color: transparent;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            color: white;
+            padding: 8px 12px;
+            border-radius: 10px;
+            cursor: pointer;
+            font-size: 0.85rem;
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        #new-chat-btn:hover {
+            background-color: rgba(255, 255, 255, 0.1);
+        }
+
+        .model-picker {
+            padding: 0 20px 16px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            border-bottom: 1px solid rgba(255,255,255,0.1);
+        }
+
+        .model-picker label {
+            font-size: 0.8rem;
+            color: var(--text-muted);
+            letter-spacing: 0.02em;
+        }
+
+        .select-shell {
+            position: relative;
+        }
+
+        .custom-select {
+            position: relative;
+        }
+
+        .custom-select-button {
+            width: 100%;
+            padding: 13px 46px 13px 15px;
+            background: var(--select-bg);
+            border: 1px solid var(--select-border);
+            color: white;
+            border-radius: 13px;
+            font-family: inherit;
+            font-size: 1rem;
+            font-weight: 600;
+            box-shadow: inset 0 1px 0 rgba(255,255,255,0.06), 0 10px 24px var(--select-shadow);
+            transition: transform 0.18s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+            text-align: left;
+            cursor: pointer;
+            position: relative;
+        }
+
+        .custom-select-button::after {
+            content: "";
+            position: absolute;
+            right: 20px;
+            top: 50%;
+            width: 11px;
+            height: 11px;
+            border-right: 2px solid rgba(255, 255, 255, 0.92);
+            border-bottom: 2px solid rgba(255, 255, 255, 0.92);
+            transform: translateY(-70%) rotate(45deg);
+            transition: transform 0.2s ease;
+        }
+
+        .custom-select.open .custom-select-button::after {
+            transform: translateY(-25%) rotate(225deg);
+        }
+
+        .custom-select-button:hover {
+            border-color: rgba(196, 181, 253, 0.82);
+            transform: translateY(-1px);
+        }
+
+        .custom-select-button:focus {
+            outline: none;
+            border-color: rgba(196, 181, 253, 0.96);
+            box-shadow: 0 0 0 5px var(--select-ring), inset 0 1px 0 rgba(255,255,255,0.05), 0 14px 28px rgba(0,0,0,0.28);
+        }
+
+        .custom-select-menu {
+            position: absolute;
+            top: calc(100% + 10px);
+            left: 0;
+            right: 0;
+            background: #2b2d38;
+            border: 1px solid rgba(167, 139, 250, 0.35);
+            border-radius: 14px;
+            padding: 8px;
+            box-shadow: 0 18px 40px rgba(0, 0, 0, 0.38);
+            display: none;
+            z-index: 20;
+        }
+
+        .custom-select.open .custom-select-menu {
+            display: block;
+        }
+
+        .custom-select-option {
+            width: 100%;
+            border: none;
+            background: transparent;
+            color: #f5f7fb;
+            text-align: left;
+            border-radius: 10px;
+            padding: 12px 14px;
+            font-size: 0.98rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background 0.18s ease, color 0.18s ease;
+        }
+
+        .custom-select-option:hover,
+        .custom-select-option.active {
+            background: linear-gradient(90deg, rgba(139, 92, 246, 0.22), rgba(59, 130, 246, 0.14));
+            color: white;
+        }
+
+        .session-list {
+            flex: 1;
+            overflow-y: auto;
+            padding: 12px;
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+
+        .session-item {
+            background: transparent;
+            border: none;
+            color: #d1d5db;
+            text-align: left;
+            padding: 12px;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: background 0.2s;
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+
+        .session-item:hover {
+            background-color: var(--sidebar-hover);
+        }
+
+        .session-item.active {
+            background-color: var(--sidebar-hover);
+            color: white;
+        }
+
+        .session-title {
+            font-weight: 500;
+            font-size: 0.95rem;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .session-meta {
+            font-size: 0.75rem;
+            color: #9ca3af;
+        }
+
+        .chat-panel {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            position: relative;
+            background-color: var(--chat-bg);
+            min-width: 0;
+        }
+
+        .chat-header {
+            padding: 16px 24px;
+            background-color: rgba(255, 255, 255, 0.8);
+            backdrop-filter: blur(10px);
+            border-bottom: 1px solid var(--border-color);
+            position: sticky;
+            top: 0;
+            z-index: 10;
+        }
+
+        .chat-title {
+            font-size: 1.1rem;
+            font-weight: 600;
+        }
+
+        .chat-subtitle {
+            font-size: 0.8rem;
+            color: var(--text-muted);
+            margin-top: 4px;
+        }
+
+        .messages {
+            flex: 1;
+            overflow-y: auto;
+            padding: 10px 0 14px;
+            display: flex;
+            flex-direction: column;
+            scroll-behavior: smooth;
+        }
+
+        .message-wrapper {
+            padding: 8px 24px;
+            display: flex;
+            justify-content: center;
+        }
+
+        .message-wrapper.user {
+            background-color: transparent;
+        }
+
+        .message-wrapper.assistant {
+            background-color: white;
+            border-top: 1px solid rgba(229, 229, 229, 0.72);
+            border-bottom: 1px solid rgba(229, 229, 229, 0.72);
+        }
+
+        .message-inner {
+            max-width: 800px;
+            width: 100%;
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+
+        .avatar {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            color: white;
+            font-size: 0.75rem;
+            line-height: 1;
+            padding: 6px 10px;
+            border-radius: 999px;
+            width: fit-content;
+        }
+
+        .user .avatar { background-color: var(--primary-color); }
+        .assistant .avatar { background-color: #6366f1; }
+
+        .message-content-box {
+            font-size: 1rem;
+            line-height: 1.55;
+            color: var(--text-main);
+            word-break: break-word;
+            white-space: pre-wrap;
+        }
+
+        .composer-container {
+            padding: 24px;
+            background: linear-gradient(180deg, rgba(247,247,248,0) 0%, #f7f7f8 50%);
+        }
+
+        .composer {
+            max-width: 800px;
+            margin: 0 auto;
+            background: white;
+            border: 1px solid var(--border-color);
+            border-radius: 16px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.05);
+            padding: 12px 16px;
+            position: relative;
+            display: flex;
+            flex-direction: column;
+            transition: box-shadow 0.3s ease;
+        }
+
+        .composer:focus-within {
+            border-color: #d1d5db;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+        }
+
+        textarea {
+            width: 100%;
+            border: none;
+            resize: none;
+            outline: none;
+            font-family: inherit;
+            font-size: 1rem;
+            color: var(--text-main);
+            padding: 8px 0;
+            background: transparent;
+        }
+
+        textarea::placeholder { color: #a1a1aa; }
+
+        .composer-actions {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-top: 8px;
+            gap: 12px;
+        }
+
+        .status-text {
+            font-size: 0.8rem;
+            color: var(--text-muted);
+        }
+
+        #send-btn {
+            background-color: var(--primary-color);
+            color: white;
+            border: none;
+            padding: 8px 20px;
+            border-radius: 8px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: background 0.2s;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        #send-btn:hover:not(:disabled) { background-color: var(--primary-hover); }
+        #send-btn:disabled { background-color: #ccc; cursor: not-allowed; }
+
+        .empty-state, .empty-sessions {
+            text-align: center;
+            color: var(--text-muted);
+            margin-top: 40px;
+            font-size: 0.95rem;
+        }
+
+        @media (max-width: 900px) {
+            body {
+                height: auto;
+                overflow: auto;
+            }
+
+            .layout {
+                flex-direction: column;
+                height: auto;
+                min-height: 100vh;
+            }
+
+            .sidebar {
+                width: 100%;
+            }
+
+            .chat-panel {
+                min-height: 70vh;
+            }
+
+            .message-inner {
+                gap: 6px;
+            }
+
+            .message-wrapper,
+            .chat-header,
+            .composer-container {
+                padding-left: 16px;
+                padding-right: 16px;
+            }
+        }
+    </style>
 </head>
 <body>
     <div class="layout">
         <aside class="sidebar">
             <div class="sidebar-header">
-                <h1>UUAPI Chat</h1>
-                <button id="new-chat-btn" type="button">新开对话</button>
+                <h1>ZYZ,ZZP NB!!!</h1>
+                <button id="new-chat-btn" type="button">
+                    <svg stroke="currentColor" fill="none" stroke-width="2" viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round" height="16" width="16" xmlns="http://www.w3.org/2000/svg"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+                    新对话
+                </button>
             </div>
             <div class="model-picker">
-                <label for="model-select">模型</label>
-                <select id="model-select">
-                    {% for model in models %}
-                    <option value="{{ model }}" {% if model == default_model %}selected{% endif %}>{{ model }}</option>
-                    {% endfor %}
-                </select>
+                <label for="model-select">选择模型</label>
+                <div class="select-shell">
+                    <div class="custom-select" id="custom-select">
+                        <button type="button" class="custom-select-button" id="model-select-button">{{ default_model }}</button>
+                        <div class="custom-select-menu" id="model-select-menu">
+                            {% for model in models %}
+                            <button
+                                type="button"
+                                class="custom-select-option {% if model == default_model %}active{% endif %}"
+                                data-model-value="{{ model }}"
+                            >{{ model }}</button>
+                            {% endfor %}
+                        </div>
+                    </div>
+                </div>
             </div>
             <div id="session-list" class="session-list"></div>
         </aside>
@@ -34,13 +482,18 @@
 
             <section id="messages" class="messages"></section>
 
-            <form id="chat-form" class="composer">
-                <textarea id="message-input" rows="4" placeholder="输入你的问题，按 Ctrl+Enter 发送"></textarea>
-                <div class="composer-actions">
-                    <span id="status-text" class="status-text">准备就绪</span>
-                    <button id="send-btn" type="submit">发送</button>
-                </div>
-            </form>
+            <div class="composer-container">
+                <form id="chat-form" class="composer">
+                    <textarea id="message-input" rows="3" placeholder="输入你的问题，按 Ctrl+Enter 发送..."></textarea>
+                    <div class="composer-actions">
+                        <span id="status-text" class="status-text">准备就绪</span>
+                        <button id="send-btn" type="submit">
+                            发送
+                            <svg stroke="currentColor" fill="none" stroke-width="2" viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round" height="16" width="16" xmlns="http://www.w3.org/2000/svg"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
+                        </button>
+                    </div>
+                </form>
+            </div>
         </main>
     </div>
 
@@ -48,17 +501,37 @@
         const state = {
             sessionId: null,
             sessions: [],
+            messages: [],
             sending: false,
+            currentAssistantMessageId: null,
         };
 
         const sessionListEl = document.getElementById("session-list");
         const messagesEl = document.getElementById("messages");
         const chatTitleEl = document.getElementById("chat-title");
         const chatSubtitleEl = document.getElementById("chat-subtitle");
-        const modelSelectEl = document.getElementById("model-select");
+        const customSelectEl = document.getElementById("custom-select");
+        const modelSelectButtonEl = document.getElementById("model-select-button");
+        const modelSelectMenuEl = document.getElementById("model-select-menu");
         const messageInputEl = document.getElementById("message-input");
         const statusTextEl = document.getElementById("status-text");
         const sendBtnEl = document.getElementById("send-btn");
+
+        function uid() {
+            return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+        }
+
+        function getSelectedModel() {
+            return modelSelectButtonEl.dataset.value || modelSelectButtonEl.textContent.trim();
+        }
+
+        function setSelectedModel(model) {
+            modelSelectButtonEl.dataset.value = model;
+            modelSelectButtonEl.textContent = model;
+            modelSelectMenuEl.querySelectorAll(".custom-select-option").forEach((option) => {
+                option.classList.toggle("active", option.dataset.modelValue === model);
+            });
+        }
 
         function escapeHtml(text) {
             return text
@@ -66,6 +539,18 @@
                 .replaceAll("<", "&lt;")
                 .replaceAll(">", "&gt;")
                 .replaceAll('"', "&quot;");
+        }
+
+        function cleanAssistantText(text, role) {
+            if (role !== "assistant") {
+                return text;
+            }
+
+            return text
+                .replace(/\*/g, "")
+                .replace(/#/g, "")
+                .replace(/\n{3,}/g, "\n\n")
+                .trim();
         }
 
         function setStatus(text) {
@@ -76,8 +561,12 @@
             state.sending = isSending;
             sendBtnEl.disabled = isSending;
             messageInputEl.disabled = isSending;
-            modelSelectEl.disabled = isSending;
-            setStatus(isSending ? "Claude 正在思考..." : "准备就绪");
+            modelSelectButtonEl.disabled = isSending;
+            setStatus(isSending ? "正在思考..." : "准备就绪");
+        }
+
+        function scrollMessagesToBottom() {
+            messagesEl.scrollTop = messagesEl.scrollHeight;
         }
 
         function renderMessages(messages) {
@@ -86,13 +575,36 @@
                 return;
             }
 
-            messagesEl.innerHTML = messages.map((message) => `
-                <article class="message ${message.role}">
-                    <div class="message-role">${message.role === "user" ? "你" : "Claude"}</div>
-                    <div class="message-content">${escapeHtml(message.content).replaceAll("\n", "<br>")}</div>
-                </article>
-            `).join("");
-            messagesEl.scrollTop = messagesEl.scrollHeight;
+            messagesEl.innerHTML = messages.map((message) => {
+                const isUser = message.role === "user";
+                const avatarText = isUser ? "我" : "AI";
+                const roleClass = isUser ? "user" : "assistant";
+                const displayText = cleanAssistantText(message.content, message.role);
+
+                return `
+                <div class="message-wrapper ${roleClass}">
+                    <div class="message-inner">
+                        <div class="avatar">${avatarText}</div>
+                        <div class="message-content-box">${escapeHtml(displayText).replaceAll("\n", "<br>")}</div>
+                    </div>
+                </div>
+            `;
+            }).join("");
+            scrollMessagesToBottom();
+        }
+
+        function appendLocalMessage(role, content = "") {
+            const nextMessage = { id: uid(), role, content };
+            state.messages = [...state.messages, nextMessage];
+            renderMessages(state.messages);
+            return nextMessage.id;
+        }
+
+        function updateLocalMessage(messageId, content) {
+            state.messages = state.messages.map((message) =>
+                message.id === messageId ? { ...message, content } : message
+            );
+            renderMessages(state.messages);
         }
 
         function renderSessions() {
@@ -130,10 +642,11 @@
             const response = await fetch("/api/sessions", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ model: modelSelectEl.value }),
+                body: JSON.stringify({ model: getSelectedModel() }),
             });
             const session = await response.json();
             state.sessionId = session.id;
+            state.messages = [];
             chatTitleEl.textContent = session.title;
             chatSubtitleEl.textContent = session.id;
             renderMessages([]);
@@ -149,12 +662,13 @@
 
             const data = await response.json();
             state.sessionId = data.session.id;
+            state.messages = data.messages;
             chatTitleEl.textContent = data.session.title;
             chatSubtitleEl.textContent = data.session.id;
             if (syncModel) {
-                modelSelectEl.value = data.session.model;
+                setSelectedModel(data.session.model);
             }
-            renderMessages(data.messages);
+            renderMessages(state.messages);
             renderSessions();
         }
 
@@ -168,34 +682,91 @@
                 await createSession();
             }
 
+            const pendingMessage = message;
+            messageInputEl.value = "";
+            appendLocalMessage("user", pendingMessage);
+            state.currentAssistantMessageId = appendLocalMessage("assistant", "");
             setSending(true);
 
             try {
-                const response = await fetch("/api/chat", {
+                const response = await fetch("/api/chat/stream", {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({
                         session_id: state.sessionId,
-                        message,
-                        model: modelSelectEl.value,
+                        message: pendingMessage,
+                        model: getSelectedModel(),
                     }),
                 });
-
-                const data = await response.json();
                 if (!response.ok) {
+                    const data = await response.json();
                     throw new Error(data.detail || "发送失败");
                 }
 
-                state.sessionId = data.session.id;
-                chatTitleEl.textContent = data.session.title;
-                chatSubtitleEl.textContent = data.session.id;
-                modelSelectEl.value = data.session.model;
-                messageInputEl.value = "";
-                renderMessages(data.messages);
-                await refreshSessions();
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder("utf-8");
+                let buffer = "";
+                let assistantText = "";
+
+                while (true) {
+                    const { value, done } = await reader.read();
+                    if (done) {
+                        break;
+                    }
+
+                    buffer += decoder.decode(value, { stream: true });
+                    const chunks = buffer.split("\n\n");
+                    buffer = chunks.pop() || "";
+
+                    for (const chunk of chunks) {
+                        const lines = chunk.split("\n");
+                        let eventName = "message";
+                        let dataText = "";
+
+                        for (const line of lines) {
+                            if (line.startsWith("event:")) {
+                                eventName = line.slice(6).trim();
+                            } else if (line.startsWith("data:")) {
+                                dataText += line.slice(5).trim();
+                            }
+                        }
+
+                        if (!dataText) {
+                            continue;
+                        }
+
+                        const payload = JSON.parse(dataText);
+
+                        if (eventName === "start") {
+                            if (payload.session) {
+                                state.sessionId = payload.session.id;
+                                chatTitleEl.textContent = payload.session.title;
+                                chatSubtitleEl.textContent = payload.session.id;
+                            }
+                        } else if (eventName === "delta") {
+                            assistantText += payload.text || "";
+                            updateLocalMessage(state.currentAssistantMessageId, assistantText);
+                        } else if (eventName === "done") {
+                            assistantText = payload.reply || assistantText;
+                            updateLocalMessage(state.currentAssistantMessageId, assistantText);
+                            if (payload.session) {
+                                chatTitleEl.textContent = payload.session.title;
+                                chatSubtitleEl.textContent = payload.session.id;
+                                setSelectedModel(payload.session.model);
+                            }
+                            await refreshSessions();
+                        } else if (eventName === "error") {
+                            throw new Error(payload.detail || "发送失败");
+                        }
+                    }
+                }
             } catch (error) {
+                if (state.currentAssistantMessageId) {
+                    updateLocalMessage(state.currentAssistantMessageId, `请求失败：${error.message || "发送失败"}`);
+                }
                 setStatus(error.message || "发送失败");
             } finally {
+                state.currentAssistantMessageId = null;
                 setSending(false);
                 messageInputEl.focus();
             }
@@ -204,6 +775,26 @@
         document.getElementById("new-chat-btn").addEventListener("click", async () => {
             await createSession();
             messageInputEl.focus();
+        });
+
+        modelSelectButtonEl.addEventListener("click", () => {
+            if (state.sending) {
+                return;
+            }
+            customSelectEl.classList.toggle("open");
+        });
+
+        modelSelectMenuEl.querySelectorAll(".custom-select-option").forEach((option) => {
+            option.addEventListener("click", () => {
+                setSelectedModel(option.dataset.modelValue);
+                customSelectEl.classList.remove("open");
+            });
+        });
+
+        document.addEventListener("click", (event) => {
+            if (!customSelectEl.contains(event.target)) {
+                customSelectEl.classList.remove("open");
+            }
         });
 
         document.getElementById("chat-form").addEventListener("submit", async (event) => {
@@ -219,10 +810,12 @@
         });
 
         async function init() {
+            setSelectedModel(modelSelectButtonEl.textContent.trim());
             await refreshSessions();
             if (state.sessions.length) {
                 await loadSession(state.sessions[0].id, true);
             } else {
+                state.messages = [];
                 renderMessages([]);
             }
         }

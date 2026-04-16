@@ -1,3 +1,4 @@
+import json
 import sqlite3
 import uuid
 from contextlib import closing
@@ -5,12 +6,12 @@ from datetime import datetime
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field
 
-from uuapi_client import DEFAULT_MODEL, SUPPORTED_MODELS, normalize_model, send_chat
+from uuapi_client import DEFAULT_MODEL, SUPPORTED_MODELS, iter_stream_chat, normalize_model, send_chat
 
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -143,6 +144,27 @@ def get_messages(connection: sqlite3.Connection, session_id: str) -> list[dict]:
     return [dict(row) for row in rows]
 
 
+def get_session(connection: sqlite3.Connection, session_id: str) -> dict | None:
+    session = connection.execute(
+        "SELECT id, title, model, created_at, updated_at FROM sessions WHERE id = ?",
+        (session_id,),
+    ).fetchone()
+    return dict(session) if session is not None else None
+
+
+def sse_event(event: str, data: dict) -> str:
+    return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
+
+
+def extract_stream_text(chunk: dict) -> str:
+    data = chunk.get("data", {})
+    if data.get("type") == "content_block_delta":
+        delta = data.get("delta", {})
+        if delta.get("type") == "text_delta":
+            return delta.get("text", "")
+    return ""
+
+
 @app.on_event("startup")
 def startup() -> None:
     init_db()
@@ -189,14 +211,11 @@ def api_create_session(payload: CreateSessionRequest) -> dict:
 @app.get("/api/sessions/{session_id}")
 def api_get_session(session_id: str) -> dict:
     with closing(get_connection()) as connection:
-        session = connection.execute(
-            "SELECT id, title, model, created_at, updated_at FROM sessions WHERE id = ?",
-            (session_id,),
-        ).fetchone()
+        session = get_session(connection, session_id)
         if session is None:
             raise HTTPException(status_code=404, detail="Session not found")
         return {
-            "session": dict(session),
+            "session": session,
             "messages": get_messages(connection, session_id),
         }
 
@@ -236,14 +255,75 @@ def api_chat(payload: ChatRequest) -> dict:
         add_message(connection, payload.session_id, "assistant", assistant_text)
         update_session_metadata(connection, payload.session_id, response["model"], title=title)
 
-        session = connection.execute(
-            "SELECT id, title, model, created_at, updated_at FROM sessions WHERE id = ?",
-            (payload.session_id,),
-        ).fetchone()
+        session = get_session(connection, payload.session_id)
         messages = get_messages(connection, payload.session_id)
 
     return {
-        "session": dict(session),
+        "session": session,
         "messages": messages,
         "reply": assistant_text,
     }
+
+
+@app.post("/api/chat/stream")
+def api_chat_stream(payload: ChatRequest) -> StreamingResponse:
+    message_text = payload.message.strip()
+    if not message_text:
+        raise HTTPException(status_code=400, detail="Message cannot be empty")
+
+    with closing(get_connection()) as connection:
+        if not session_exists(connection, payload.session_id):
+            create_session_record(connection, payload.session_id, payload.model)
+
+        history_before = get_messages(connection, payload.session_id)
+        add_message(connection, payload.session_id, "user", message_text)
+
+        title = build_title(message_text) if not history_before else None
+        request_messages = [
+            {"role": item["role"], "content": item["content"]}
+            for item in [*history_before, {"role": "user", "content": message_text}]
+        ]
+        session = get_session(connection, payload.session_id)
+
+    def event_stream():
+        assistant_parts: list[str] = []
+        response_model = normalize_model(payload.model)
+
+        try:
+            yield sse_event(
+                "start",
+                {
+                    "session": session,
+                    "message": {"role": "user", "content": message_text},
+                },
+            )
+
+            for chunk in iter_stream_chat(
+                messages=request_messages,
+                model=payload.model,
+                session_id=payload.session_id,
+            ):
+                response_model = chunk.get("data", {}).get("model", response_model)
+                text_delta = extract_stream_text(chunk)
+                if text_delta:
+                    assistant_parts.append(text_delta)
+                    yield sse_event("delta", {"text": text_delta})
+
+            assistant_text = "".join(assistant_parts).strip() or "(empty response)"
+
+            with closing(get_connection()) as connection:
+                add_message(connection, payload.session_id, "assistant", assistant_text)
+                update_session_metadata(connection, payload.session_id, response_model, title=title)
+                latest_session = get_session(connection, payload.session_id)
+
+            yield sse_event(
+                "done",
+                {
+                    "session": latest_session,
+                    "reply": assistant_text,
+                },
+            )
+        except Exception as exc:
+            yield sse_event("error", {"detail": f"Upstream request failed: {exc}"})
+
+    return StreamingResponse(event_stream(), media_type="text/event-stream")
