@@ -2,3 +2,4 @@ fastapi
 httpx
 jinja2
 uvicorn
+email-validator
