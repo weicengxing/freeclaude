@@ -9,6 +9,12 @@ import httpx
 DEFAULT_BASE_URL = os.getenv("UUAPI_BASE_URL", "https://uuapi.net").rstrip("/")
 DEFAULT_MODEL = "claude-opus-4-6"
 SUPPORTED_MODELS = {"claude-opus-4-6", "claude-sonnet-4-6"}
+SUPPORTED_IMAGE_MEDIA_TYPES = {
+    "image/jpeg",
+    "image/png",
+    "image/webp",
+    "image/gif",
+}
 DEFAULT_BETA = ",".join(
     [
         "claude-code-20250219",
@@ -69,24 +75,47 @@ def build_headers(api_key: str, session_id: str) -> dict[str, str]:
     }
 
 
-def to_claude_message(role: str, text: str) -> dict[str, Any]:
-    return {
-        "role": role,
-        "content": [
+def to_claude_message(message: dict[str, Any]) -> dict[str, Any]:
+    role = str(message.get("role", "user"))
+    text = str(message.get("content", "") or "")
+    image = message.get("image")
+    content: list[dict[str, Any]] = []
+
+    if role == "user" and isinstance(image, dict):
+        media_type = str(image.get("media_type", "")).strip().lower()
+        data = str(image.get("data", "")).strip()
+        if media_type in SUPPORTED_IMAGE_MEDIA_TYPES and data:
+            content.append(
+                {
+                    "type": "image",
+                    "source": {
+                        "type": "base64",
+                        "media_type": media_type,
+                        "data": data,
+                    },
+                }
+            )
+
+    if text or not content:
+        content.append(
             {
                 "type": "text",
                 "text": text,
             }
-        ],
+        )
+
+    return {
+        "role": role,
+        "content": content,
     }
 
 
-def build_payload(messages: list[dict[str, str]], model: str, session_id: str, stream: bool = False) -> dict[str, Any]:
+def build_payload(messages: list[dict[str, Any]], model: str, session_id: str, stream: bool = False) -> dict[str, Any]:
     return {
         "model": normalize_model(model),
         "max_tokens": 2048,
         "system": DEFAULT_SYSTEM_PROMPT,
-        "messages": [to_claude_message(item["role"], item["content"]) for item in messages],
+        "messages": [to_claude_message(item) for item in messages],
         "thinking": {"type": "adaptive"},
         "metadata": {
             "user_id": json.dumps(
@@ -122,7 +151,7 @@ def extract_text(response_json: dict[str, Any]) -> str:
 
 
 def send_chat(
-    messages: list[dict[str, str]],
+    messages: list[dict[str, Any]],
     model: str,
     session_id: str | None = None,
     api_key: str | None = None,
@@ -151,7 +180,7 @@ def send_chat(
 
 
 def iter_stream_chat(
-    messages: list[dict[str, str]],
+    messages: list[dict[str, Any]],
     model: str,
     session_id: str | None = None,
     api_key: str | None = None,

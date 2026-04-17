@@ -507,8 +507,19 @@
 
             <form id="chat-form">
                 <textarea id="message-input" placeholder="输入你的问题，按 Ctrl+Enter 发送"></textarea>
+                <input id="image-input" class="hidden" type="file" accept="image/jpeg,image/png,image/webp,image/gif">
+                <div id="composer-image-preview" class="composer-image-preview hidden">
+                    <img id="composer-image-preview-img" class="composer-image-preview-img" alt="Image preview">
+                    <div class="composer-image-meta">
+                        <div id="composer-image-name" class="helper"></div>
+                        <button id="remove-image-btn" class="ghost-btn" type="button">移除图片</button>
+                    </div>
+                </div>
                 <div class="composer-row">
-                    <span id="status-text" class="status-text">正在检查登录状态...</span>
+                    <div class="composer-tools">
+                        <button id="attach-image-btn" class="secondary-btn" type="button">上传图片</button>
+                        <span id="status-text" class="status-text">正在检查登录状态...</span>
+                    </div>
                     <button id="send-btn" class="primary-btn" type="submit">发送</button>
                 </div>
             </form>
@@ -587,6 +598,7 @@
             sessionId: null,
             sessions: [],
             messages: [],
+            selectedImage: null,
             sending: false,
             currentAssistantMessageId: null,
             importingKeys: false,
@@ -599,6 +611,12 @@
         const chatSubtitleEl = document.getElementById("chat-subtitle");
         const modelSelectEl = document.getElementById("model-select");
         const messageInputEl = document.getElementById("message-input");
+        const imageInputEl = document.getElementById("image-input");
+        const attachImageBtnEl = document.getElementById("attach-image-btn");
+        const removeImageBtnEl = document.getElementById("remove-image-btn");
+        const composerImagePreviewEl = document.getElementById("composer-image-preview");
+        const composerImagePreviewImgEl = document.getElementById("composer-image-preview-img");
+        const composerImageNameEl = document.getElementById("composer-image-name");
         const statusTextEl = document.getElementById("status-text");
         const sendBtnEl = document.getElementById("send-btn");
         const renameSessionBtnEl = document.getElementById("rename-session-btn");
@@ -616,6 +634,8 @@
         const authStatusEl = document.getElementById("auth-status");
         const adminStatusEl = document.getElementById("admin-status");
         const adminUserListEl = document.getElementById("admin-user-list");
+        const SUPPORTED_IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/webp", "image/gif"]);
+        const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 
         function uid() {
             return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
@@ -652,6 +672,76 @@
                 .replaceAll('"', "&quot;");
         }
 
+        function buildImageDataUrl(image) {
+            if (!image?.media_type || !image?.data) {
+                return "";
+            }
+            return `data:${image.media_type};base64,${image.data}`;
+        }
+
+        function renderComposerImage() {
+            const image = state.selectedImage;
+            composerImagePreviewEl.classList.toggle("hidden", !image);
+            removeImageBtnEl.disabled = !image || state.sending || !state.auth?.authenticated;
+            if (!image) {
+                composerImagePreviewImgEl.removeAttribute("src");
+                composerImageNameEl.textContent = "";
+                return;
+            }
+            composerImagePreviewImgEl.src = image.preview_url || buildImageDataUrl(image);
+            composerImageNameEl.textContent = image.name || "已选择图片";
+        }
+
+        function clearSelectedImage() {
+            state.selectedImage = null;
+            imageInputEl.value = "";
+            renderComposerImage();
+        }
+
+        function normalizeImageForRequest(image) {
+            if (!image) {
+                return null;
+            }
+            return {
+                name: image.name || null,
+                media_type: image.media_type,
+                data: image.data,
+            };
+        }
+
+        async function handleImageFile(file) {
+            if (!file) {
+                return;
+            }
+            if (!SUPPORTED_IMAGE_TYPES.has(file.type)) {
+                throw new Error("仅支持 JPG、PNG、WEBP、GIF 图片");
+            }
+            if (file.size > MAX_IMAGE_BYTES) {
+                throw new Error("图片不能超过 5 MB");
+            }
+
+            const dataUrl = await new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = () => resolve(reader.result);
+                reader.onerror = () => reject(new Error("读取图片失败"));
+                reader.readAsDataURL(file);
+            });
+
+            const dataUrlText = String(dataUrl || "");
+            const commaIndex = dataUrlText.indexOf(",");
+            if (commaIndex < 0) {
+                throw new Error("图片编码失败");
+            }
+
+            state.selectedImage = {
+                name: file.name,
+                media_type: file.type,
+                data: dataUrlText.slice(commaIndex + 1),
+                preview_url: dataUrlText,
+            };
+            renderComposerImage();
+        }
+
         function applyAuth(auth) {
             state.auth = auth;
             const loggedIn = Boolean(auth?.authenticated);
@@ -664,6 +754,9 @@
             adminBtnEl.classList.toggle("hidden", !auth?.is_admin);
             keyToolsEl.classList.toggle("hidden", !auth?.is_admin);
             messageInputEl.disabled = !loggedIn || state.sending;
+            imageInputEl.disabled = !loggedIn || state.sending;
+            attachImageBtnEl.disabled = !loggedIn || state.sending;
+            removeImageBtnEl.disabled = !loggedIn || state.sending || !state.selectedImage;
             sendBtnEl.disabled = !loggedIn || state.sending;
             modelSelectEl.disabled = !loggedIn || state.sending;
             renameSessionBtnEl.disabled = !loggedIn || !state.sessionId || state.sending;
@@ -675,6 +768,7 @@
                 state.sessions = [];
                 state.messages = [];
                 state.keyCount = 0;
+                clearSelectedImage();
                 renderSessions();
                 renderMessages();
                 chatTitleEl.textContent = "新对话";
@@ -730,11 +824,12 @@
                     <div class="message-top">
                         <div class="message-role">${message.role === "user" ? "用户" : "AI"}</div>
                         <div class="message-actions">
-                            ${message.role === "user" ? `<button class="message-btn" type="button" data-edit-message="${message.id}">编辑后重发</button>` : ""}
+                            ${message.role === "user" && !message.image ? `<button class="message-btn" type="button" data-edit-message="${message.id}">编辑后重发</button>` : ""}
                             <button class="message-btn danger" type="button" data-delete-message="${message.id}">从此删除</button>
                         </div>
                     </div>
-                    <div>${escapeHtml(message.content || "").replaceAll("\n", "<br>")}</div>
+                    ${message.image ? `<div class="message-image"><img src="${buildImageDataUrl(message.image)}" alt="${escapeHtml(message.image.name || "上传图片")}"></div>` : ""}
+                    ${message.content ? `<div>${escapeHtml(message.content || "").replaceAll("\n", "<br>")}</div>` : ""}
                 </div>
             `).join("");
 
@@ -752,8 +847,8 @@
             scrollMessagesToBottom();
         }
 
-        function appendLocalMessage(role, content = "") {
-            const nextMessage = { id: uid(), role, content };
+        function appendLocalMessage(role, content = "", image = null) {
+            const nextMessage = { id: uid(), role, content, image };
             state.messages = [...state.messages, nextMessage];
             renderMessages();
             return nextMessage.id;
@@ -991,6 +1086,10 @@
         }
 
         async function editAndResendMessage(message) {
+            if (message.image) {
+                setStatus("图片消息暂不支持编辑后重发");
+                return;
+            }
             const edited = window.prompt("修改后会从这里重新生成后续对话。", message.content);
             if (edited === null) return;
             const trimmed = edited.trim();
@@ -1022,15 +1121,19 @@
 
         async function sendMessage() {
             const message = messageInputEl.value.trim();
-            if (!message || state.sending) return;
+            const selectedImage = state.selectedImage ? { ...state.selectedImage } : null;
+            const image = normalizeImageForRequest(selectedImage);
+            if ((!message && !image) || state.sending) return;
             if (!state.sessionId) {
                 await createSession();
             }
             if (!state.sessionId) return;
 
             const pendingMessage = message;
+            const pendingImage = image;
             messageInputEl.value = "";
-            appendLocalMessage("user", pendingMessage);
+            clearSelectedImage();
+            appendLocalMessage("user", pendingMessage, pendingImage);
             state.currentAssistantMessageId = appendLocalMessage("assistant", "");
             setSending(true);
 
@@ -1041,6 +1144,7 @@
                     body: JSON.stringify({
                         session_id: state.sessionId,
                         message: pendingMessage,
+                        image: pendingImage,
                         model: modelSelectEl.value,
                     }),
                 });
@@ -1100,6 +1204,8 @@
                 }
             } catch (error) {
                 state.messages = state.messages.slice(0, -2);
+                state.selectedImage = selectedImage;
+                renderComposerImage();
                 renderMessages();
                 setStatus(error.message || "发送失败");
             } finally {
@@ -1162,6 +1268,32 @@
             } catch (error) {
                 setStatus(error.message || "创建会话失败");
             }
+        });
+
+        attachImageBtnEl.addEventListener("click", () => {
+            if (attachImageBtnEl.disabled) {
+                return;
+            }
+            imageInputEl.click();
+        });
+
+        imageInputEl.addEventListener("change", async (event) => {
+            const [file] = event.target.files || [];
+            if (!file) {
+                return;
+            }
+            try {
+                await handleImageFile(file);
+                setStatus(`已选择图片：${file.name}`);
+            } catch (error) {
+                clearSelectedImage();
+                setStatus(error.message || "选择图片失败");
+            }
+        });
+
+        removeImageBtnEl.addEventListener("click", () => {
+            clearSelectedImage();
+            setStatus(state.auth?.authenticated ? "已移除图片" : "请先登录");
         });
 
         logoutBtnEl.addEventListener("click", async () => {
@@ -1291,6 +1423,7 @@
             renderKeyMeta();
             renderSessions();
             renderMessages();
+            renderComposerImage();
             const auth = await refreshAuth();
             if (auth?.authenticated) {
                 if (auth.is_admin) {
