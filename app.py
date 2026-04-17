@@ -36,6 +36,24 @@ VALID_ROLES = {ROLE_USER, ROLE_SUPERADMIN}
 VERIFY_CODE_TTL_MINUTES = 10
 VERIFY_PURPOSE_REGISTER = "register"
 VERIFY_PURPOSE_RESET = "reset"
+DEFAULT_USER_KEY_BATCH_SIZE = 5
+LEGACY_FIXED_USER_KEY_BATCH_SIZE = 5
+
+
+def get_env_int(name: str, default: int, minimum: int = 1) -> int:
+    raw_value = os.getenv(name)
+    if raw_value is None or not raw_value.strip():
+        return default
+    try:
+        value = int(raw_value.strip())
+    except ValueError as exc:
+        raise RuntimeError(f"Environment variable {name} must be an integer") from exc
+    if value < minimum:
+        raise RuntimeError(f"Environment variable {name} must be >= {minimum}")
+    return value
+
+
+USER_KEY_BATCH_SIZE = get_env_int("USER_KEY_BATCH_SIZE", DEFAULT_USER_KEY_BATCH_SIZE)
 
 app = FastAPI(title="UUAPI Web Chat")
 app.mount("/static", StaticFiles(directory=str(BASE_DIR / "static")), name="static")
@@ -105,6 +123,11 @@ def get_connection() -> sqlite3.Connection:
     connection = sqlite3.connect(DB_PATH)
     connection.row_factory = sqlite3.Row
     return connection
+
+
+def rollback_if_needed(connection: sqlite3.Connection) -> None:
+    if connection.in_transaction:
+        connection.rollback()
 
 
 def table_has_column(connection: sqlite3.Connection, table_name: str, column_name: str) -> bool:
@@ -356,10 +379,32 @@ def init_db() -> None:
 
             CREATE UNIQUE INDEX IF NOT EXISTS idx_api_keys_api_key
             ON api_keys(api_key);
+
+            CREATE TABLE IF NOT EXISTS api_key_allocator_state (
+                singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+                next_batch_start_id INTEGER,
+                updated_at TEXT NOT NULL
+            );
             """
         )
         if not table_has_column(connection, "sessions", "user_id"):
             connection.execute("ALTER TABLE sessions ADD COLUMN user_id INTEGER")
+        if not table_has_column(connection, "users", "api_key_batch_start_id"):
+            connection.execute("ALTER TABLE users ADD COLUMN api_key_batch_start_id INTEGER")
+        if not table_has_column(connection, "users", "current_api_key_id"):
+            connection.execute("ALTER TABLE users ADD COLUMN current_api_key_id INTEGER")
+        if not table_has_column(connection, "users", "api_key_batch_size"):
+            connection.execute("ALTER TABLE users ADD COLUMN api_key_batch_size INTEGER")
+        connection.execute(
+            """
+            UPDATE users
+            SET api_key_batch_size = ?
+            WHERE api_key_batch_size IS NULL
+              AND api_key_batch_start_id IS NOT NULL
+              AND current_api_key_id IS NOT NULL
+            """,
+            (LEGACY_FIXED_USER_KEY_BATCH_SIZE,),
+        )
         ensure_default_admins(connection)
         migrate_legacy_sessions(connection)
         cleanup_expired_verify_codes(connection)
@@ -663,16 +708,251 @@ def import_api_keys_from_url(connection: sqlite3.Connection, source_url: str) ->
     }
 
 
-def get_latest_api_key(connection: sqlite3.Connection) -> str | None:
+def get_api_key_id_bounds(connection: sqlite3.Connection) -> tuple[int | None, int | None]:
+    row = connection.execute(
+        "SELECT MIN(id) AS min_id, MAX(id) AS max_id FROM api_keys"
+    ).fetchone()
+    if row is None or row["min_id"] is None or row["max_id"] is None:
+        return None, None
+    return int(row["min_id"]), int(row["max_id"])
+
+
+def get_api_key_count(connection: sqlite3.Connection) -> int:
+    row = connection.execute("SELECT COUNT(*) AS count FROM api_keys").fetchone()
+    return int(row["count"]) if row is not None else 0
+
+
+def get_api_key_record_by_id(connection: sqlite3.Connection, key_id: int | None) -> dict | None:
+    if key_id is None:
+        return None
     row = connection.execute(
         """
-        SELECT api_key
+        SELECT id, api_key, source_url, created_at
         FROM api_keys
-        ORDER BY id DESC
+        WHERE id = ?
         LIMIT 1
-        """
+        """,
+        (key_id,),
     ).fetchone()
-    return row["api_key"] if row is not None else None
+    return dict(row) if row is not None else None
+
+
+def get_user_key_state(connection: sqlite3.Connection, user_id: int) -> dict | None:
+    row = connection.execute(
+        """
+        SELECT id, api_key_batch_start_id, current_api_key_id, api_key_batch_size
+        FROM users
+        WHERE id = ?
+        LIMIT 1
+        """,
+        (user_id,),
+    ).fetchone()
+    return dict(row) if row is not None else None
+
+
+def get_effective_user_batch_size(user_state: dict | None) -> int | None:
+    if user_state is None:
+        return None
+    batch_size = user_state.get("api_key_batch_size")
+    if batch_size is None:
+        return None
+    return int(batch_size)
+
+
+def init_allocator_state_row(connection: sqlite3.Connection) -> None:
+    row = connection.execute(
+        "SELECT singleton FROM api_key_allocator_state WHERE singleton = 1"
+    ).fetchone()
+    if row is None:
+        connection.execute(
+            """
+            INSERT INTO api_key_allocator_state (singleton, next_batch_start_id, updated_at)
+            VALUES (1, NULL, ?)
+            """,
+            (utc_now(),),
+        )
+
+
+def allocate_key_batch_locked(connection: sqlite3.Connection, user_id: int) -> dict:
+    min_key_id, _ = get_api_key_id_bounds(connection)
+    if min_key_id is None:
+        raise HTTPException(status_code=503, detail="当前没有可用的 API Key")
+
+    try:
+        connection.execute("BEGIN IMMEDIATE")
+        init_allocator_state_row(connection)
+        state = connection.execute(
+            """
+            SELECT next_batch_start_id
+            FROM api_key_allocator_state
+            WHERE singleton = 1
+            LIMIT 1
+            """
+        ).fetchone()
+
+        batch_start_id = min_key_id
+        if state is not None and state["next_batch_start_id"] is not None:
+            batch_start_id = max(int(state["next_batch_start_id"]), min_key_id)
+
+        allocated_batch_size = USER_KEY_BATCH_SIZE
+        batch_end_id = batch_start_id + allocated_batch_size - 1
+        available_count = connection.execute(
+            """
+            SELECT COUNT(*) AS count
+            FROM api_keys
+            WHERE id BETWEEN ? AND ?
+            """,
+            (batch_start_id, batch_end_id),
+        ).fetchone()
+        if available_count is None or int(available_count["count"]) != allocated_batch_size:
+            raise HTTPException(
+                status_code=503,
+                detail=f"可分配的连续 API Key 不足 {allocated_batch_size} 个",
+            )
+
+        now = utc_now()
+        connection.execute(
+            """
+            UPDATE api_key_allocator_state
+            SET next_batch_start_id = ?, updated_at = ?
+            WHERE singleton = 1
+            """,
+            (batch_end_id + 1, now),
+        )
+        connection.execute(
+            """
+            UPDATE users
+            SET api_key_batch_start_id = ?, current_api_key_id = ?, api_key_batch_size = ?
+            WHERE id = ?
+            """,
+            (batch_start_id, batch_start_id, allocated_batch_size, user_id),
+        )
+        connection.commit()
+    except Exception:
+        rollback_if_needed(connection)
+        raise
+
+    key_record = get_api_key_record_by_id(connection, batch_start_id)
+    if key_record is None:
+        raise HTTPException(status_code=503, detail="分配的 API Key 不存在")
+    return key_record
+
+
+def ensure_user_api_key(connection: sqlite3.Connection, user_id: int) -> dict:
+    user_state = get_user_key_state(connection, user_id)
+    current_key_id = None if user_state is None else user_state["current_api_key_id"]
+    key_record = get_api_key_record_by_id(connection, current_key_id)
+    if key_record is not None:
+        return key_record
+    return allocate_key_batch_locked(connection, user_id)
+
+
+def advance_user_api_key(connection: sqlite3.Connection, user_id: int, exhausted_key_id: int | None) -> dict:
+    try:
+        connection.execute("BEGIN IMMEDIATE")
+        user_state = get_user_key_state(connection, user_id)
+        if user_state is None:
+            raise HTTPException(status_code=404, detail="用户不存在")
+
+        current_key_id = user_state["current_api_key_id"]
+        batch_start_id = user_state["api_key_batch_start_id"]
+        batch_size = get_effective_user_batch_size(user_state)
+
+        if current_key_id is None or batch_start_id is None or batch_size is None:
+            rollback_if_needed(connection)
+            return allocate_key_batch_locked(connection, user_id)
+
+        if exhausted_key_id is not None and current_key_id != exhausted_key_id:
+            connection.commit()
+            key_record = get_api_key_record_by_id(connection, current_key_id)
+            if key_record is None:
+                return allocate_key_batch_locked(connection, user_id)
+            return key_record
+
+        batch_end_id = int(batch_start_id) + batch_size - 1
+        if int(current_key_id) < batch_end_id:
+            next_key_id = int(current_key_id) + 1
+            key_record = get_api_key_record_by_id(connection, next_key_id)
+            if key_record is None:
+                raise HTTPException(status_code=503, detail="下一个 API Key 不存在")
+            connection.execute(
+                "UPDATE users SET current_api_key_id = ? WHERE id = ?",
+                (next_key_id, user_id),
+            )
+            connection.commit()
+            return key_record
+
+        connection.commit()
+        return allocate_key_batch_locked(connection, user_id)
+    except Exception:
+        rollback_if_needed(connection)
+        raise
+
+
+def is_api_key_quota_error(exc: Exception) -> bool:
+    if isinstance(exc, HTTPException):
+        return False
+
+    message_parts = [str(exc)]
+    if isinstance(exc, httpx.HTTPStatusError):
+        message_parts.append(exc.response.text)
+
+    normalized = " ".join(part.lower() for part in message_parts if part)
+    keywords = (
+        "quota",
+        "余额",
+        "额度",
+        "insufficient",
+        "credit",
+        "rate limit",
+        "api key has been disabled",
+        "invalid x-api-key",
+        "unauthorized",
+        "forbidden",
+    )
+    return any(keyword in normalized for keyword in keywords)
+
+
+def get_exception_detail(exc: Exception) -> str:
+    if isinstance(exc, HTTPException):
+        return str(exc.detail)
+    return str(exc)
+
+
+def send_chat_with_user_api_key(
+    connection: sqlite3.Connection,
+    user_id: int,
+    messages: list[dict[str, str]],
+    model: str,
+    session_id: str,
+) -> dict:
+    retry_limit = max(1, min(get_api_key_count(connection), 50))
+    attempted_key_ids: set[int] = set()
+    last_exc: Exception | None = None
+
+    for _ in range(retry_limit):
+        key_record = ensure_user_api_key(connection, user_id)
+        key_id = int(key_record["id"])
+        if key_id in attempted_key_ids:
+            break
+        attempted_key_ids.add(key_id)
+
+        try:
+            return send_chat(
+                messages=messages,
+                model=model,
+                session_id=session_id,
+                api_key=key_record["api_key"],
+            )
+        except Exception as exc:
+            last_exc = exc
+            if not is_api_key_quota_error(exc):
+                raise
+            advance_user_api_key(connection, user_id, key_id)
+
+    if last_exc is not None:
+        raise HTTPException(status_code=503, detail=f"所有可切换的 API Key 都不可用: {last_exc}") from last_exc
+    raise HTTPException(status_code=503, detail="当前没有可用的 API Key")
 
 
 def build_request_messages(history: list[dict]) -> list[dict[str, str]]:
@@ -742,12 +1022,30 @@ def send_and_persist_reply(
     request_messages = build_request_messages([*history_before, {"role": "user", "content": message_text}])
 
     try:
-        response = send_chat(
+        response = send_chat_with_user_api_key(
+            connection=connection,
+            user_id=user_id,
             messages=request_messages,
             model=model,
             session_id=session_id,
-            api_key=get_latest_api_key(connection),
         )
+    except HTTPException:
+        latest_user = connection.execute(
+            """
+            SELECT id
+            FROM messages
+            WHERE session_id = ? AND role = 'user'
+            ORDER BY id DESC
+            LIMIT 1
+            """,
+            (session_id,),
+        ).fetchone()
+        if latest_user is not None:
+            connection.execute("DELETE FROM messages WHERE id = ?", (latest_user["id"],))
+            connection.commit()
+        if removed_suffix:
+            restore_messages(connection, removed_suffix)
+        raise
     except Exception as exc:
         latest_user = connection.execute(
             """
@@ -907,7 +1205,12 @@ def api_register(payload: RegisterRequest) -> dict:
                 now_local_text(),
             ),
         )
+        user_id = int(connection.execute("SELECT last_insert_rowid()").fetchone()[0])
         connection.commit()
+        try:
+            ensure_user_api_key(connection, user_id)
+        except HTTPException:
+            logger.warning("register user %s without preallocated api key batch", user_id)
 
     with closing(get_connection()) as connection:
         delete_verify_code(connection, email, VERIFY_PURPOSE_REGISTER)
@@ -1243,9 +1546,9 @@ def api_chat_stream(payload: ChatRequest, user_session: str | None = Cookie(defa
 
         should_autobuild_title = not history_before and (current_session is None or current_session["title"] == "New Chat")
         title = build_title(message_text) if should_autobuild_title else None
-        selected_api_key = get_latest_api_key(connection)
         request_messages = build_request_messages([*history_before, {"role": "user", "content": message_text}])
         session = get_session(connection, payload.session_id, user["id"])
+        retry_limit = max(1, min(get_api_key_count(connection), 50))
 
     def event_stream():
         assistant_parts: list[str] = []
@@ -1260,17 +1563,45 @@ def api_chat_stream(payload: ChatRequest, user_session: str | None = Cookie(defa
                 },
             )
 
-            for chunk in iter_stream_chat(
-                messages=request_messages,
-                model=payload.model,
-                session_id=payload.session_id,
-                api_key=selected_api_key,
-            ):
-                response_model = chunk.get("data", {}).get("model", response_model)
-                text_delta = extract_stream_text(chunk)
-                if text_delta:
-                    assistant_parts.append(text_delta)
-                    yield sse_event("delta", {"text": text_delta})
+            attempted_key_ids: set[int] = set()
+            last_exc: Exception | None = None
+            stream_completed = False
+            for _ in range(retry_limit):
+                with closing(get_connection()) as key_connection:
+                    key_record = ensure_user_api_key(key_connection, user["id"])
+
+                key_id = int(key_record["id"])
+                if key_id in attempted_key_ids:
+                    break
+                attempted_key_ids.add(key_id)
+
+                emitted_text = False
+                try:
+                    for chunk in iter_stream_chat(
+                        messages=request_messages,
+                        model=payload.model,
+                        session_id=payload.session_id,
+                        api_key=key_record["api_key"],
+                    ):
+                        response_model = chunk.get("data", {}).get("model", response_model)
+                        text_delta = extract_stream_text(chunk)
+                        if text_delta:
+                            emitted_text = True
+                            assistant_parts.append(text_delta)
+                            yield sse_event("delta", {"text": text_delta})
+                    stream_completed = True
+                    break
+                except Exception as exc:
+                    last_exc = exc
+                    if emitted_text or not is_api_key_quota_error(exc):
+                        raise
+                    with closing(get_connection()) as rotate_connection:
+                        advance_user_api_key(rotate_connection, user["id"], key_id)
+
+            if not stream_completed:
+                if last_exc is not None:
+                    raise HTTPException(status_code=503, detail=f"所有可切换的 API Key 都不可用: {last_exc}") from last_exc
+                raise HTTPException(status_code=503, detail="当前没有可用的 API Key")
 
             assistant_text = "".join(assistant_parts).strip() or "(empty response)"
 
@@ -1291,6 +1622,6 @@ def api_chat_stream(payload: ChatRequest, user_session: str | None = Cookie(defa
                 if inserted_user is not None:
                     rollback_connection.execute("DELETE FROM messages WHERE id = ?", (inserted_user["id"],))
                     rollback_connection.commit()
-            yield sse_event("error", {"detail": f"Upstream request failed: {exc}"})
+            yield sse_event("error", {"detail": get_exception_detail(exc)})
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")
