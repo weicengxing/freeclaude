@@ -86,7 +86,9 @@ class ChatRequest(BaseModel):
     session_id: str
     message: str = ""
     image: ImagePayload | None = None
+    images: list[ImagePayload] = Field(default_factory=list)
     model: str = DEFAULT_MODEL
+    replace_from_message_id: int | None = None
 
 
 class UpdateSessionRequest(BaseModel):
@@ -260,6 +262,33 @@ def normalize_image_payload(image: ImagePayload | dict[str, Any] | None) -> dict
     return normalized
 
 
+def normalize_image_payloads(images: list[ImagePayload | dict[str, Any]] | None) -> list[dict[str, str]]:
+    normalized_images: list[dict[str, str]] = []
+    for image in images or []:
+        normalized_image = normalize_image_payload(image)
+        if normalized_image is not None:
+            normalized_images.append(normalized_image)
+    return normalized_images
+
+
+def normalize_request_images(
+    image: ImagePayload | dict[str, Any] | None,
+    images: list[ImagePayload | dict[str, Any]] | None,
+) -> list[dict[str, str]]:
+    if images:
+        return normalize_image_payloads(images)
+
+    normalized_image = normalize_image_payload(image)
+    return [normalized_image] if normalized_image is not None else []
+
+
+def assign_message_images(target: dict[str, Any], images: list[dict[str, str]]) -> dict[str, Any]:
+    if images:
+        target["images"] = images
+        target["image"] = images[0]
+    return target
+
+
 def parse_stored_message_content(raw_content: str) -> dict[str, Any]:
     if raw_content:
         stripped = raw_content.lstrip()
@@ -270,36 +299,39 @@ def parse_stored_message_content(raw_content: str) -> dict[str, Any]:
                 payload = None
             if isinstance(payload, dict) and payload.get("v") == STRUCTURED_MESSAGE_VERSION:
                 text = str(payload.get("text", "") or "")
+                images: list[dict[str, str]] = []
                 try:
-                    image = normalize_image_payload(payload.get("image")) if isinstance(payload.get("image"), dict) else None
+                    if isinstance(payload.get("images"), list):
+                        images = normalize_image_payloads(payload.get("images"))
+                    elif isinstance(payload.get("image"), dict):
+                        legacy_image = normalize_image_payload(payload.get("image"))
+                        if legacy_image is not None:
+                            images = [legacy_image]
                 except HTTPException:
-                    image = None
-                result: dict[str, Any] = {"content": text}
-                if image is not None:
-                    result["image"] = image
-                return result
+                    images = []
+                return assign_message_images({"content": text}, images)
     return {"content": raw_content}
 
 
-def serialize_message_content(content: str, image: dict[str, str] | None = None) -> str:
-    if image is None:
+def serialize_message_content(content: str, images: list[dict[str, str]] | None = None) -> str:
+    if not images:
         return content
-    return json.dumps(
-        {
-            "v": STRUCTURED_MESSAGE_VERSION,
-            "text": content,
-            "image": image,
-        },
-        ensure_ascii=False,
-        separators=(",", ":"),
-    )
+    payload: dict[str, Any] = {
+        "v": STRUCTURED_MESSAGE_VERSION,
+        "text": content,
+    }
+    if len(images) == 1:
+        payload["image"] = images[0]
+    else:
+        payload["images"] = images
+    return json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
 
 
-def build_title_for_message(message_text: str, image: dict[str, Any] | None = None) -> str:
+def build_title_for_message(message_text: str, images: list[dict[str, Any]] | None = None) -> str:
     compact = " ".join(message_text.split()).strip()
     if compact:
         return build_title(compact)
-    if image is not None:
+    if images:
         return "图片消息"
     return "New Chat"
 
@@ -630,7 +662,7 @@ def add_message(
     session_id: str,
     role: str,
     content: str,
-    image: dict[str, str] | None = None,
+    images: list[dict[str, str]] | None = None,
 ) -> None:
     now = utc_now()
     connection.execute(
@@ -638,7 +670,7 @@ def add_message(
         INSERT INTO messages (session_id, role, content, created_at)
         VALUES (?, ?, ?, ?)
         """,
-        (session_id, role, serialize_message_content(content, image), now),
+        (session_id, role, serialize_message_content(content, images), now),
     )
     connection.execute(
         "UPDATE sessions SET updated_at = ? WHERE id = ?",
@@ -697,8 +729,7 @@ def get_messages(connection: sqlite3.Connection, session_id: str, user_id: int) 
         item = dict(row)
         parsed = parse_stored_message_content(item["content"])
         item["content"] = parsed["content"]
-        if parsed.get("image") is not None:
-            item["image"] = parsed["image"]
+        assign_message_images(item, parsed.get("images") or [])
         messages.append(item)
     return messages
 
@@ -730,8 +761,7 @@ def get_message(connection: sqlite3.Connection, session_id: str, user_id: int, m
     item = dict(row)
     parsed = parse_stored_message_content(item["content"])
     item["content"] = parsed["content"]
-    if parsed.get("image") is not None:
-        item["image"] = parsed["image"]
+    assign_message_images(item, parsed.get("images") or [])
     return item
 
 
@@ -1090,8 +1120,11 @@ def build_request_messages(history: list[dict]) -> list[dict[str, Any]]:
             "role": item["role"],
             "content": item.get("content", ""),
         }
-        if item.get("image") is not None:
-            message["image"] = item["image"]
+        images = item.get("images")
+        if isinstance(images, list) and images:
+            message["images"] = images
+        elif item.get("image") is not None:
+            message["images"] = [item["image"]]
         request_messages.append(message)
     return request_messages
 
@@ -1107,7 +1140,7 @@ def restore_messages(connection: sqlite3.Connection, messages: list[dict]) -> No
                 item["id"],
                 item["session_id"],
                 item["role"],
-                serialize_message_content(item.get("content", ""), item.get("image")),
+                serialize_message_content(item.get("content", ""), item.get("images") or []),
                 item["created_at"],
             ),
         )
@@ -1140,7 +1173,7 @@ def send_and_persist_reply(
     session_id: str,
     user_id: int,
     message_text: str,
-    image: dict[str, str] | None,
+    images: list[dict[str, str]],
     model: str,
     replace_from_message_id: int | None = None,
 ) -> tuple[dict, list[dict], str]:
@@ -1159,11 +1192,11 @@ def send_and_persist_reply(
         delete_messages_from(connection, session_id, user_id, replace_from_message_id)
 
     history_before = get_messages(connection, session_id, user_id)
-    add_message(connection, session_id, "user", message_text, image=image)
+    add_message(connection, session_id, "user", message_text, images=images)
 
     should_autobuild_title = not history_before and (current_session is None or current_session["title"] == "New Chat")
-    title = build_title_for_message(message_text, image) if should_autobuild_title else None
-    request_messages = build_request_messages([*history_before, {"role": "user", "content": message_text, "image": image}])
+    title = build_title_for_message(message_text, images) if should_autobuild_title else None
+    request_messages = build_request_messages([*history_before, {"role": "user", "content": message_text, "images": images}])
 
     try:
         response = send_chat_with_user_api_key(
@@ -1597,7 +1630,7 @@ def api_delete_message(session_id: str, message_id: int, user_session: str | Non
             title = (
                 session["title"]
                 if session["title"] != "New Chat"
-                else build_title_for_message(first_user["content"], first_user.get("image")) if first_user else "New Chat"
+                else build_title_for_message(first_user["content"], first_user.get("images") or []) if first_user else "New Chat"
             )
 
         update_session_metadata(connection, session_id, user["id"], session["model"], title=title)
@@ -1627,7 +1660,7 @@ def api_resend_message(
             raise HTTPException(status_code=404, detail="Message not found")
         if target_message["role"] != "user":
             raise HTTPException(status_code=400, detail="Only user messages can be edited and resent")
-        if target_message.get("image") is not None:
+        if target_message.get("images"):
             raise HTTPException(status_code=400, detail="Image messages cannot be edited and resent yet")
 
         session, messages, assistant_text = send_and_persist_reply(
@@ -1635,7 +1668,7 @@ def api_resend_message(
             session_id=session_id,
             user_id=user["id"],
             message_text=message_text,
-            image=None,
+            images=[],
             model=payload.model,
             replace_from_message_id=message_id,
         )
@@ -1650,8 +1683,8 @@ def api_resend_message(
 @app.post("/api/chat")
 def api_chat(payload: ChatRequest, user_session: str | None = Cookie(default=None)) -> dict:
     message_text = payload.message.strip()
-    image = normalize_image_payload(payload.image)
-    if not message_text and image is None:
+    images = normalize_request_images(payload.image, payload.images)
+    if not message_text and not images:
         raise HTTPException(status_code=400, detail="Message or image is required")
 
     with closing(get_connection()) as connection:
@@ -1661,7 +1694,7 @@ def api_chat(payload: ChatRequest, user_session: str | None = Cookie(default=Non
             session_id=payload.session_id,
             user_id=user["id"],
             message_text=message_text,
-            image=image,
+            images=images,
             model=payload.model,
         )
 
@@ -1675,18 +1708,33 @@ def api_chat(payload: ChatRequest, user_session: str | None = Cookie(default=Non
 @app.post("/api/chat/stream")
 def api_chat_stream(payload: ChatRequest, user_session: str | None = Cookie(default=None)) -> StreamingResponse:
     message_text = payload.message.strip()
-    image = normalize_image_payload(payload.image)
-    if not message_text and image is None:
+    images = normalize_request_images(payload.image, payload.images)
+    if not message_text and not images:
         raise HTTPException(status_code=400, detail="Message or image is required")
 
     with closing(get_connection()) as connection:
         user = require_user(connection, user_session)
-        if not session_exists(connection, payload.session_id, user["id"]):
+        removed_suffix: list[dict] = []
+        replace_from_message_id = payload.replace_from_message_id
+
+        if replace_from_message_id is not None:
+            target_message = get_message(connection, payload.session_id, user["id"], replace_from_message_id)
+            if target_message is None:
+                raise HTTPException(status_code=404, detail="Message not found")
+            if target_message["role"] != "user":
+                raise HTTPException(status_code=400, detail="Only user messages can be edited and resent")
+            if target_message.get("images"):
+                raise HTTPException(status_code=400, detail="Image messages cannot be edited and resent yet")
+            removed_suffix = [
+                item for item in get_messages(connection, payload.session_id, user["id"]) if item["id"] >= replace_from_message_id
+            ]
+            delete_messages_from(connection, payload.session_id, user["id"], replace_from_message_id)
+        elif not session_exists(connection, payload.session_id, user["id"]):
             create_session_record(connection, payload.session_id, user["id"], payload.model)
 
         current_session = get_session(connection, payload.session_id, user["id"])
         history_before = get_messages(connection, payload.session_id, user["id"])
-        add_message(connection, payload.session_id, "user", message_text, image=image)
+        add_message(connection, payload.session_id, "user", message_text, images=images)
         inserted_user = connection.execute(
             """
             SELECT id, session_id, role, content, created_at
@@ -1699,8 +1747,8 @@ def api_chat_stream(payload: ChatRequest, user_session: str | None = Cookie(defa
         ).fetchone()
 
         should_autobuild_title = not history_before and (current_session is None or current_session["title"] == "New Chat")
-        title = build_title_for_message(message_text, image) if should_autobuild_title else None
-        request_messages = build_request_messages([*history_before, {"role": "user", "content": message_text, "image": image}])
+        title = build_title_for_message(message_text, images) if should_autobuild_title else None
+        request_messages = build_request_messages([*history_before, {"role": "user", "content": message_text, "images": images}])
         session = get_session(connection, payload.session_id, user["id"])
         retry_limit = max(1, min(get_api_key_count(connection), 50))
 
@@ -1713,7 +1761,7 @@ def api_chat_stream(payload: ChatRequest, user_session: str | None = Cookie(defa
                 "start",
                 {
                     "session": session,
-                    "message": {"role": "user", "content": message_text, "image": image},
+                    "message": assign_message_images({"role": "user", "content": message_text}, images),
                 },
             )
 
@@ -1776,6 +1824,8 @@ def api_chat_stream(payload: ChatRequest, user_session: str | None = Cookie(defa
                 if inserted_user is not None:
                     rollback_connection.execute("DELETE FROM messages WHERE id = ?", (inserted_user["id"],))
                     rollback_connection.commit()
+                if removed_suffix:
+                    restore_messages(rollback_connection, removed_suffix)
             yield sse_event("error", {"detail": get_exception_detail(exc)})
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")

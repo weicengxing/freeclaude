@@ -456,6 +456,7 @@
             .admin-user-card { grid-template-columns: 1fr; }
         }
     </style>
+    <link rel="stylesheet" href="/static/app.css?v=20260417">
 </head>
 <body>
     <div class="shell">
@@ -478,11 +479,6 @@
                 <div id="auth-meta" class="meta-text">请先登录后再开始聊天。</div>
             </div>
 
-            <div id="key-tools" class="key-tools hidden">
-                <button id="import-keys-btn" class="sidebar-secondary-btn" type="button">从 GitHub 导入 Key</button>
-                <div id="key-meta" class="key-meta">Key 数量：加载中...</div>
-            </div>
-
             <div class="toolbar">
                 <button id="rename-session-btn" class="secondary-btn" type="button" disabled>重命名</button>
                 <button id="delete-session-btn" class="danger-btn" type="button" disabled>删除会话</button>
@@ -490,13 +486,14 @@
             <div id="session-list" class="session-list"></div>
         </aside>
 
-        <main class="panel">
-            <header class="header-row">
+        <main class="panel workspace-panel">
+            <header class="header-row workspace-header">
                 <div>
                     <div id="chat-title" class="session-title">新对话</div>
                     <div id="chat-subtitle" class="meta-text">登录后历史会话会保存在 SQLite 中。</div>
                 </div>
                 <div class="auth-actions">
+                    <button id="import-keys-btn" class="secondary-btn hidden" type="button">导入</button>
                     <button id="admin-btn" class="secondary-btn hidden" type="button">用户管理</button>
                     <button id="show-auth-btn" class="secondary-btn hidden" type="button">登录 / 注册</button>
                     <button id="logout-btn" class="secondary-btn hidden" type="button">退出登录</button>
@@ -505,11 +502,11 @@
 
             <section id="messages" class="messages"></section>
 
-            <form id="chat-form">
+            <form id="chat-form" class="composer">
                 <textarea id="message-input" placeholder="输入你的问题，按 Ctrl+Enter 发送"></textarea>
-                <input id="image-input" class="hidden" type="file" accept="image/jpeg,image/png,image/webp,image/gif">
+                <input id="image-input" class="hidden" type="file" accept="image/jpeg,image/png,image/webp,image/gif" multiple>
                 <div id="composer-image-preview" class="composer-image-preview hidden">
-                    <img id="composer-image-preview-img" class="composer-image-preview-img" alt="Image preview">
+                    <div id="composer-image-list" class="composer-image-list"></div>
                     <div class="composer-image-meta">
                         <div id="composer-image-name" class="helper"></div>
                         <button id="remove-image-btn" class="ghost-btn" type="button">移除图片</button>
@@ -524,6 +521,11 @@
                 </div>
             </form>
         </main>
+    </div>
+
+    <div id="image-lightbox" class="image-lightbox hidden">
+        <button id="image-lightbox-close" class="image-lightbox-close" type="button">关闭</button>
+        <img id="image-lightbox-img" class="image-lightbox-img" alt="Preview image">
     </div>
 
     <div id="auth-overlay" class="auth-overlay hidden">
@@ -598,6 +600,7 @@
             sessionId: null,
             sessions: [],
             messages: [],
+            selectedImages: [],
             selectedImage: null,
             sending: false,
             currentAssistantMessageId: null,
@@ -615,8 +618,10 @@
         const attachImageBtnEl = document.getElementById("attach-image-btn");
         const removeImageBtnEl = document.getElementById("remove-image-btn");
         const composerImagePreviewEl = document.getElementById("composer-image-preview");
-        const composerImagePreviewImgEl = document.getElementById("composer-image-preview-img");
+        const composerImageListEl = document.getElementById("composer-image-list");
         const composerImageNameEl = document.getElementById("composer-image-name");
+        const imageLightboxEl = document.getElementById("image-lightbox");
+        const imageLightboxImgEl = document.getElementById("image-lightbox-img");
         const statusTextEl = document.getElementById("status-text");
         const sendBtnEl = document.getElementById("send-btn");
         const renameSessionBtnEl = document.getElementById("rename-session-btn");
@@ -649,9 +654,10 @@
             if (!keyMetaEl || !importKeysBtnEl) {
                 return;
             }
-            const sourceText = sourceUrl || "https://github.com/weicengxing/freeclaude/blob/main/key.txt";
-            keyMetaEl.innerHTML = `Key 数量：${state.keyCount}<br>来源：${escapeHtml(sourceText)}`;
+            const sourceText = sourceUrl || "GitHub";
+            keyMetaEl.textContent = `Key ${state.keyCount} · ${sourceText}`;
             importKeysBtnEl.disabled = !state.auth?.is_admin || state.sending || state.importingKeys;
+            importKeysBtnEl.textContent = state.importingKeys ? "导入中..." : "导入";
         }
 
         function setAuthStatus(text, isError = false) {
@@ -672,6 +678,100 @@
                 .replaceAll('"', "&quot;");
         }
 
+        function getDisplayContent(message) {
+            const raw = String(message?.content || "");
+            if (message?.role !== "assistant") {
+                return raw;
+            }
+            return raw.replaceAll("#", "").replaceAll("*", "");
+        }
+
+        function formatMessageContent(message) {
+            return escapeHtml(getDisplayContent(message)).replaceAll("\n", "<br>");
+        }
+
+        function getMessageImages(message) {
+            if (Array.isArray(message?.images) && message.images.length) {
+                return message.images.filter((image) => image?.media_type && image?.data);
+            }
+            if (message?.image?.media_type && message?.image?.data) {
+                return [message.image];
+            }
+            return [];
+        }
+
+        function buildMessageImagesHtml(message) {
+            const images = getMessageImages(message);
+            if (!images.length) {
+                return "";
+            }
+            return `
+                <div class="message-image-grid">
+                    ${images.map((image, index) => {
+                        const previewSrc = buildImageDataUrl(image);
+                        const alt = escapeHtml(image.name || `uploaded-image-${index + 1}`);
+                        return `<div class="message-image"><img class="zoomable-image" data-preview-src="${previewSrc}" src="${previewSrc}" alt="${alt}"></div>`;
+                    }).join("")}
+                </div>
+            `;
+        }
+
+        function buildMessageHtml(message) {
+            const images = getMessageImages(message);
+            return `
+                <div class="message ${message.role}" data-message-id="${message.id}">
+                    <div class="message-top">
+                        <div class="message-role">${message.role === "user" ? "用户" : "AI"}</div>
+                        <div class="message-actions">
+                            ${message.role === "user" && !message.image ? `<button class="message-btn" type="button" data-edit-message="${message.id}">编辑后重发</button>` : ""}
+                            <button class="message-btn danger" type="button" data-delete-message="${message.id}">从此删除</button>
+                        </div>
+                    </div>
+                    ${message.image ? `<div class="message-image"><img class="zoomable-image" data-preview-src="${buildImageDataUrl(message.image)}" src="${buildImageDataUrl(message.image)}" alt="${escapeHtml(message.image.name || "上传图片")}"></div>` : ""}
+                    <div class="message-content ${message.content ? "" : "hidden"}" data-message-content="${message.id}">${message.content ? formatMessageContent(message) : ""}</div>
+                </div>
+            `;
+        }
+
+        function bindMessageEvents(scope = messagesEl) {
+            scope.querySelectorAll("[data-delete-message]").forEach((button) => {
+                if (button.dataset.boundDelete === "1") return;
+                button.dataset.boundDelete = "1";
+                button.addEventListener("click", async () => deleteMessageFrom(Number(button.dataset.deleteMessage)));
+            });
+            scope.querySelectorAll("[data-edit-message]").forEach((button) => {
+                if (button.dataset.boundEdit === "1") return;
+                button.dataset.boundEdit = "1";
+                button.addEventListener("click", async () => {
+                    const target = state.messages.find((item) => item.id === Number(button.dataset.editMessage));
+                    if (target) {
+                        await editAndResendMessage(target);
+                    }
+                });
+            });
+            scope.querySelectorAll(".zoomable-image").forEach((image) => {
+                if (image.dataset.boundZoom === "1") return;
+                image.dataset.boundZoom = "1";
+                image.addEventListener("click", () => openImageLightbox(image.dataset.previewSrc || image.getAttribute("src") || ""));
+            });
+        }
+
+        function openImageLightbox(src) {
+            if (!src || !imageLightboxEl || !imageLightboxImgEl) return;
+            imageLightboxImgEl.src = src;
+            imageLightboxEl.classList.remove("hidden");
+        }
+
+        function closeImageLightbox() {
+            if (!imageLightboxEl || !imageLightboxImgEl) return;
+            imageLightboxEl.classList.add("hidden");
+            imageLightboxImgEl.removeAttribute("src");
+        }
+
+        function isMessagesNearBottom() {
+            return messagesEl.scrollHeight - messagesEl.scrollTop - messagesEl.clientHeight < 72;
+        }
+
         function buildImageDataUrl(image) {
             if (!image?.media_type || !image?.data) {
                 return "";
@@ -685,10 +785,12 @@
             removeImageBtnEl.disabled = !image || state.sending || !state.auth?.authenticated;
             if (!image) {
                 composerImagePreviewImgEl.removeAttribute("src");
+                delete composerImagePreviewImgEl.dataset.previewSrc;
                 composerImageNameEl.textContent = "";
                 return;
             }
             composerImagePreviewImgEl.src = image.preview_url || buildImageDataUrl(image);
+            composerImagePreviewImgEl.dataset.previewSrc = image.preview_url || buildImageDataUrl(image);
             composerImageNameEl.textContent = image.name || "已选择图片";
         }
 
@@ -749,10 +851,13 @@
             authMetaEl.textContent = loggedIn
                 ? `${auth.user.email} · ${auth.user.role}`
                 : "请先登录后再开始聊天。";
+            importKeysBtnEl.classList.toggle("hidden", !auth?.is_admin);
             logoutBtnEl.classList.toggle("hidden", !loggedIn);
             showAuthBtnEl.classList.toggle("hidden", loggedIn);
             adminBtnEl.classList.toggle("hidden", !auth?.is_admin);
-            keyToolsEl.classList.toggle("hidden", !auth?.is_admin);
+            if (keyToolsEl) {
+                keyToolsEl.classList.toggle("hidden", !auth?.is_admin);
+            }
             messageInputEl.disabled = !loggedIn || state.sending;
             imageInputEl.disabled = !loggedIn || state.sending;
             attachImageBtnEl.disabled = !loggedIn || state.sending;
@@ -785,6 +890,361 @@
             setStatus(isSending ? "正在思考..." : (state.auth?.authenticated ? "准备就绪" : "请先登录"));
         }
 
+        function cloneImages(images) {
+            return getMessageImages({ images }).map((image) => ({ ...image }));
+        }
+
+        function renderComposerImage() {
+            const images = Array.isArray(state.selectedImages) ? state.selectedImages : [];
+            state.selectedImage = images[0] || null;
+            composerImagePreviewEl.classList.toggle("hidden", !images.length);
+            removeImageBtnEl.disabled = !images.length || state.sending || !state.auth?.authenticated;
+            if (!images.length) {
+                composerImageListEl.innerHTML = "";
+                composerImageNameEl.textContent = "";
+                return;
+            }
+
+            composerImageListEl.innerHTML = images.map((image, index) => {
+                const previewSrc = image.preview_url || buildImageDataUrl(image);
+                const imageName = escapeHtml(image.name || `image-${index + 1}`);
+                return `
+                    <div class="composer-image-card">
+                        <img class="composer-image-preview-img zoomable-image" data-preview-src="${previewSrc}" src="${previewSrc}" alt="${imageName}">
+                        <div class="composer-image-card-footer">
+                            <span class="helper">${imageName}</span>
+                            <button class="ghost-btn composer-image-remove" type="button" data-remove-selected-image="${index}">Remove</button>
+                        </div>
+                    </div>
+                `;
+            }).join("");
+            composerImageNameEl.textContent = `${images.length} image${images.length > 1 ? "s" : ""} selected`;
+            composerImageListEl.querySelectorAll("[data-remove-selected-image]").forEach((button) => {
+                button.addEventListener("click", () => {
+                    const index = Number(button.dataset.removeSelectedImage);
+                    if (Number.isNaN(index)) {
+                        return;
+                    }
+                    state.selectedImages = state.selectedImages.filter((_, imageIndex) => imageIndex !== index);
+                    if (!state.selectedImages.length) {
+                        imageInputEl.value = "";
+                    }
+                    renderComposerImage();
+                });
+            });
+            bindMessageEvents(composerImagePreviewEl);
+        }
+
+        function clearSelectedImage() {
+            state.selectedImages = [];
+            state.selectedImage = null;
+            imageInputEl.value = "";
+            renderComposerImage();
+        }
+
+        function normalizeImagesForRequest(images) {
+            return (images || []).map((image) => ({
+                name: image.name || null,
+                media_type: image.media_type,
+                data: image.data,
+            }));
+        }
+
+        async function handleImageFile(file) {
+            if (!file) {
+                return null;
+            }
+            if (!SUPPORTED_IMAGE_TYPES.has(file.type)) {
+                throw new Error("浠呮敮鎸?JPG銆丳NG銆乄EBP銆丟IF 鍥剧墖");
+            }
+            if (file.size > MAX_IMAGE_BYTES) {
+                throw new Error("鍥剧墖涓嶈兘瓒呰繃 5 MB");
+            }
+
+            const dataUrl = await new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = () => resolve(reader.result);
+                reader.onerror = () => reject(new Error("璇诲彇鍥剧墖澶辫触"));
+                reader.readAsDataURL(file);
+            });
+
+            const dataUrlText = String(dataUrl || "");
+            const commaIndex = dataUrlText.indexOf(",");
+            if (commaIndex < 0) {
+                throw new Error("鍥剧墖缂栫爜澶辫触");
+            }
+
+            const image = {
+                name: file.name,
+                media_type: file.type,
+                data: dataUrlText.slice(commaIndex + 1),
+                preview_url: dataUrlText,
+            };
+            state.selectedImages = [...(state.selectedImages || []), image];
+            state.selectedImage = state.selectedImages[0] || image;
+            renderComposerImage();
+            return image;
+        }
+
+        async function handleImageFiles(files) {
+            const addedImages = [];
+            for (const file of Array.from(files || [])) {
+                const image = await handleImageFile(file);
+                if (image) {
+                    addedImages.push(image);
+                }
+            }
+            return addedImages;
+        }
+
+        function buildMessageHtml(message) {
+            const images = getMessageImages(message);
+            return `
+                <div class="message ${message.role}" data-message-id="${message.id}">
+                    <div class="message-top">
+                        <div class="message-role">${message.role === "user" ? "鐢ㄦ埛" : "AI"}</div>
+                        <div class="message-actions">
+                            ${message.role === "user" && !images.length ? `<button class="message-btn" type="button" data-edit-message="${message.id}">缂栬緫鍚庨噸鍙?/button>` : ""}
+                            <button class="message-btn danger" type="button" data-delete-message="${message.id}">浠庢鍒犻櫎</button>
+                        </div>
+                    </div>
+                    ${buildMessageImagesHtml({ images })}
+                    <div class="message-content ${message.content ? "" : "hidden"}" data-message-content="${message.id}">${message.content ? formatMessageContent(message) : ""}</div>
+                </div>
+            `;
+        }
+
+        function appendLocalMessage(role, content = "", images = []) {
+            const normalizedImages = Array.isArray(images) ? cloneImages(images) : (images ? [{ ...images }] : []);
+            const nextMessage = {
+                id: uid(),
+                role,
+                content,
+                images: normalizedImages,
+                image: normalizedImages[0] || null,
+            };
+            state.messages = [...state.messages, nextMessage];
+            if (!messagesEl.querySelector(".message")) {
+                renderMessages();
+                return nextMessage.id;
+            }
+            messagesEl.insertAdjacentHTML("beforeend", buildMessageHtml(nextMessage));
+            const appendedMessage = messagesEl.querySelector(`[data-message-id="${nextMessage.id}"]`);
+            if (appendedMessage) {
+                bindMessageEvents(appendedMessage);
+            }
+            scrollMessagesToBottom();
+            return nextMessage.id;
+        }
+
+        async function editAndResendMessage(message) {
+            if (getMessageImages(message).length) {
+                setStatus("鍥剧墖娑堟伅鏆備笉鏀寔缂栬緫鍚庨噸鍙?");
+                return;
+            }
+            const edited = window.prompt("淇敼鍚庝細浠庤繖閲岄噸鏂扮敓鎴愬悗缁璇濄€?", message.content);
+            if (edited === null) return;
+            const trimmed = edited.trim();
+            if (!trimmed) {
+                setStatus("娑堟伅涓嶈兘涓虹┖");
+                return;
+            }
+            const targetIndex = state.messages.findIndex((item) => item.id === message.id);
+            if (targetIndex < 0) {
+                setStatus("鏈壘鍒拌缂栬緫鐨勬秷鎭?");
+                return;
+            }
+            const previousMessages = state.messages.map((item) => {
+                const images = cloneImages(getMessageImages(item));
+                return {
+                    ...item,
+                    images,
+                    image: images[0] || null,
+                };
+            });
+            const optimisticAssistantId = uid();
+            state.messages = [
+                ...state.messages.slice(0, targetIndex),
+                { ...message, content: trimmed, images: [], image: null },
+                { id: optimisticAssistantId, role: "assistant", content: "", images: [], image: null },
+            ];
+            state.currentAssistantMessageId = optimisticAssistantId;
+            renderMessages();
+            setSending(true);
+            try {
+                const response = await fetch("/api/chat/stream", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        session_id: state.sessionId,
+                        message: trimmed,
+                        model: modelSelectEl.value,
+                        replace_from_message_id: message.id,
+                    }),
+                });
+
+                if (!response.ok) {
+                    const data = await response.json().catch(() => ({}));
+                    throw new Error(data.detail || "閲嶅彂澶辫触");
+                }
+
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder("utf-8");
+                let buffer = "";
+                let assistantText = "";
+
+                while (true) {
+                    const { value, done } = await reader.read();
+                    if (done) break;
+                    buffer += decoder.decode(value, { stream: true });
+                    const chunks = buffer.split("\n\n");
+                    buffer = chunks.pop() || "";
+
+                    for (const chunk of chunks) {
+                        const lines = chunk.split("\n");
+                        let eventName = "message";
+                        let dataText = "";
+
+                        for (const line of lines) {
+                            if (line.startsWith("event:")) eventName = line.slice(6).trim();
+                            if (line.startsWith("data:")) dataText += line.slice(5).trim();
+                        }
+
+                        if (!dataText) continue;
+                        const payload = JSON.parse(dataText);
+
+                        if (eventName === "start" && payload.session) {
+                            state.sessionId = payload.session.id;
+                            chatTitleEl.textContent = payload.session.title;
+                            chatSubtitleEl.textContent = payload.session.id;
+                        }
+                        if (eventName === "delta") {
+                            assistantText += payload.text || "";
+                            updateLocalMessage(state.currentAssistantMessageId, assistantText);
+                        }
+                        if (eventName === "done") {
+                            assistantText = payload.reply || assistantText;
+                            updateLocalMessage(state.currentAssistantMessageId, assistantText);
+                            if (payload.session) {
+                                chatTitleEl.textContent = payload.session.title;
+                                chatSubtitleEl.textContent = payload.session.id;
+                            }
+                            setStatus("宸查噸鏂扮敓鎴愬悗缁璇?");
+                            refreshSessions().catch(() => {});
+                            loadSession(state.sessionId).catch(() => {});
+                        }
+                        if (eventName === "error") {
+                            throw new Error(payload.detail || "閲嶅彂澶辫触");
+                        }
+                    }
+                }
+            } catch (error) {
+                state.messages = previousMessages;
+                renderMessages();
+                setStatus(error.message || "閲嶅彂澶辫触");
+            } finally {
+                state.currentAssistantMessageId = null;
+                setSending(false);
+            }
+        }
+
+        async function sendMessage() {
+            const message = messageInputEl.value.trim();
+            const selectedImages = cloneImages(state.selectedImages || []);
+            const images = normalizeImagesForRequest(selectedImages);
+            if ((!message && !images.length) || state.sending) return;
+            if (!state.sessionId) {
+                await createSession();
+            }
+            if (!state.sessionId) return;
+
+            const pendingMessage = message;
+            const pendingImages = images;
+            messageInputEl.value = "";
+            clearSelectedImage();
+            appendLocalMessage("user", pendingMessage, pendingImages);
+            state.currentAssistantMessageId = appendLocalMessage("assistant", "");
+            setSending(true);
+
+            try {
+                const response = await fetch("/api/chat/stream", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        session_id: state.sessionId,
+                        message: pendingMessage,
+                        images: pendingImages,
+                        model: modelSelectEl.value,
+                    }),
+                });
+
+                if (!response.ok) {
+                    const data = await response.json().catch(() => ({}));
+                    throw new Error(data.detail || "鍙戦€佸け璐?");
+                }
+
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder("utf-8");
+                let buffer = "";
+                let assistantText = "";
+
+                while (true) {
+                    const { value, done } = await reader.read();
+                    if (done) break;
+                    buffer += decoder.decode(value, { stream: true });
+                    const chunks = buffer.split("\n\n");
+                    buffer = chunks.pop() || "";
+
+                    for (const chunk of chunks) {
+                        const lines = chunk.split("\n");
+                        let eventName = "message";
+                        let dataText = "";
+
+                        for (const line of lines) {
+                            if (line.startsWith("event:")) eventName = line.slice(6).trim();
+                            if (line.startsWith("data:")) dataText += line.slice(5).trim();
+                        }
+
+                        if (!dataText) continue;
+                        const payload = JSON.parse(dataText);
+
+                        if (eventName === "start" && payload.session) {
+                            state.sessionId = payload.session.id;
+                            chatTitleEl.textContent = payload.session.title;
+                            chatSubtitleEl.textContent = payload.session.id;
+                        }
+                        if (eventName === "delta") {
+                            assistantText += payload.text || "";
+                            updateLocalMessage(state.currentAssistantMessageId, assistantText);
+                        }
+                        if (eventName === "done") {
+                            assistantText = payload.reply || assistantText;
+                            updateLocalMessage(state.currentAssistantMessageId, assistantText);
+                            if (payload.session) {
+                                chatTitleEl.textContent = payload.session.title;
+                                chatSubtitleEl.textContent = payload.session.id;
+                            }
+                            await refreshSessions();
+                        }
+                        if (eventName === "error") {
+                            throw new Error(payload.detail || "鍙戦€佸け璐?");
+                        }
+                    }
+                }
+            } catch (error) {
+                state.messages = state.messages.slice(0, -2);
+                state.selectedImages = selectedImages;
+                state.selectedImage = selectedImages[0] || null;
+                renderComposerImage();
+                renderMessages();
+                setStatus(error.message || "鍙戦€佸け璐?");
+            } finally {
+                state.currentAssistantMessageId = null;
+                setSending(false);
+                messageInputEl.focus();
+            }
+        }
+
         function scrollMessagesToBottom() {
             messagesEl.scrollTop = messagesEl.scrollHeight;
         }
@@ -813,44 +1273,30 @@
             });
         }
 
-        function renderMessages() {
+function renderMessages() {
             if (!state.messages.length) {
                 messagesEl.innerHTML = `<div class="helper">${state.auth?.authenticated ? "这里还没有消息，开始第一轮提问吧。" : "登录后即可查看和发送消息。"}</div>`;
                 return;
             }
 
-            messagesEl.innerHTML = state.messages.map((message) => `
-                <div class="message ${message.role}">
-                    <div class="message-top">
-                        <div class="message-role">${message.role === "user" ? "用户" : "AI"}</div>
-                        <div class="message-actions">
-                            ${message.role === "user" && !message.image ? `<button class="message-btn" type="button" data-edit-message="${message.id}">编辑后重发</button>` : ""}
-                            <button class="message-btn danger" type="button" data-delete-message="${message.id}">从此删除</button>
-                        </div>
-                    </div>
-                    ${message.image ? `<div class="message-image"><img src="${buildImageDataUrl(message.image)}" alt="${escapeHtml(message.image.name || "上传图片")}"></div>` : ""}
-                    ${message.content ? `<div>${escapeHtml(message.content || "").replaceAll("\n", "<br>")}</div>` : ""}
-                </div>
-            `).join("");
-
-            messagesEl.querySelectorAll("[data-delete-message]").forEach((button) => {
-                button.addEventListener("click", async () => deleteMessageFrom(Number(button.dataset.deleteMessage)));
-            });
-            messagesEl.querySelectorAll("[data-edit-message]").forEach((button) => {
-                button.addEventListener("click", async () => {
-                    const target = state.messages.find((item) => item.id === Number(button.dataset.editMessage));
-                    if (target) {
-                        await editAndResendMessage(target);
-                    }
-                });
-            });
+            messagesEl.innerHTML = state.messages.map((message) => buildMessageHtml(message)).join("");
+            bindMessageEvents();
             scrollMessagesToBottom();
         }
 
         function appendLocalMessage(role, content = "", image = null) {
             const nextMessage = { id: uid(), role, content, image };
             state.messages = [...state.messages, nextMessage];
-            renderMessages();
+            if (!messagesEl.querySelector(".message")) {
+                renderMessages();
+                return nextMessage.id;
+            }
+            messagesEl.insertAdjacentHTML("beforeend", buildMessageHtml(nextMessage));
+            const appendedMessage = messagesEl.querySelector(`[data-message-id="${nextMessage.id}"]`);
+            if (appendedMessage) {
+                bindMessageEvents(appendedMessage);
+            }
+            scrollMessagesToBottom();
             return nextMessage.id;
         }
 
@@ -858,7 +1304,18 @@
             state.messages = state.messages.map((message) =>
                 message.id === messageId ? { ...message, content } : message
             );
-            renderMessages();
+            const contentEl = messagesEl.querySelector(`[data-message-content="${messageId}"]`);
+            if (!contentEl) {
+                renderMessages();
+                return;
+            }
+            const shouldStickBottom = isMessagesNearBottom();
+            const targetMessage = state.messages.find((item) => item.id === messageId);
+            contentEl.innerHTML = targetMessage ? formatMessageContent(targetMessage) : "";
+            contentEl.classList.toggle("hidden", !targetMessage?.content);
+            if (shouldStickBottom) {
+                scrollMessagesToBottom();
+            }
         }
 
         async function fetchJson(url, options = {}) {
@@ -1085,7 +1542,7 @@
             }
         }
 
-        async function editAndResendMessage(message) {
+async function editAndResendMessage(message) {
             if (message.image) {
                 setStatus("图片消息暂不支持编辑后重发");
                 return;
@@ -1097,24 +1554,97 @@
                 setStatus("消息不能为空");
                 return;
             }
+            const targetIndex = state.messages.findIndex((item) => item.id === message.id);
+            if (targetIndex < 0) {
+                setStatus("未找到要编辑的消息");
+                return;
+            }
+            const previousMessages = state.messages.map((item) => ({
+                ...item,
+                image: item.image ? { ...item.image } : item.image,
+            }));
+            const optimisticAssistantId = uid();
+            state.messages = [
+                ...state.messages.slice(0, targetIndex),
+                { ...message, content: trimmed },
+                { id: optimisticAssistantId, role: "assistant", content: "", image: null },
+            ];
+            state.currentAssistantMessageId = optimisticAssistantId;
+            renderMessages();
             setSending(true);
             try {
-                const data = await fetchJson(`/api/sessions/${state.sessionId}/messages/${message.id}/resend`, {
+                const response = await fetch("/api/chat/stream", {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({
+                        session_id: state.sessionId,
                         message: trimmed,
                         model: modelSelectEl.value,
+                        replace_from_message_id: message.id,
                     }),
                 });
-                state.messages = data.messages || [];
-                chatTitleEl.textContent = data.session.title;
-                renderMessages();
-                await refreshSessions();
-                setStatus("已重新生成后续对话");
+
+                if (!response.ok) {
+                    const data = await response.json().catch(() => ({}));
+                    throw new Error(data.detail || "重发失败");
+                }
+
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder("utf-8");
+                let buffer = "";
+                let assistantText = "";
+
+                while (true) {
+                    const { value, done } = await reader.read();
+                    if (done) break;
+                    buffer += decoder.decode(value, { stream: true });
+                    const chunks = buffer.split("\n\n");
+                    buffer = chunks.pop() || "";
+
+                    for (const chunk of chunks) {
+                        const lines = chunk.split("\n");
+                        let eventName = "message";
+                        let dataText = "";
+
+                        for (const line of lines) {
+                            if (line.startsWith("event:")) eventName = line.slice(6).trim();
+                            if (line.startsWith("data:")) dataText += line.slice(5).trim();
+                        }
+
+                        if (!dataText) continue;
+                        const payload = JSON.parse(dataText);
+
+                        if (eventName === "start" && payload.session) {
+                            state.sessionId = payload.session.id;
+                            chatTitleEl.textContent = payload.session.title;
+                            chatSubtitleEl.textContent = payload.session.id;
+                        }
+                        if (eventName === "delta") {
+                            assistantText += payload.text || "";
+                            updateLocalMessage(state.currentAssistantMessageId, assistantText);
+                        }
+                        if (eventName === "done") {
+                            assistantText = payload.reply || assistantText;
+                            updateLocalMessage(state.currentAssistantMessageId, assistantText);
+                            if (payload.session) {
+                                chatTitleEl.textContent = payload.session.title;
+                                chatSubtitleEl.textContent = payload.session.id;
+                            }
+                            setStatus("已重新生成后续对话");
+                            refreshSessions().catch(() => {});
+                            loadSession(state.sessionId).catch(() => {});
+                        }
+                        if (eventName === "error") {
+                            throw new Error(payload.detail || "重发失败");
+                        }
+                    }
+                }
             } catch (error) {
+                state.messages = previousMessages;
+                renderMessages();
                 setStatus(error.message || "重发失败");
             } finally {
+                state.currentAssistantMessageId = null;
                 setSending(false);
             }
         }
@@ -1215,6 +1745,237 @@
             }
         }
 
+        function appendLocalMessage(role, content = "", images = []) {
+            const normalizedImages = Array.isArray(images) ? cloneImages(images) : (images ? [{ ...images }] : []);
+            const nextMessage = {
+                id: uid(),
+                role,
+                content,
+                images: normalizedImages,
+                image: normalizedImages[0] || null,
+            };
+            state.messages = [...state.messages, nextMessage];
+            if (!messagesEl.querySelector(".message")) {
+                renderMessages();
+                return nextMessage.id;
+            }
+            messagesEl.insertAdjacentHTML("beforeend", buildMessageHtml(nextMessage));
+            const appendedMessage = messagesEl.querySelector(`[data-message-id="${nextMessage.id}"]`);
+            if (appendedMessage) {
+                bindMessageEvents(appendedMessage);
+            }
+            scrollMessagesToBottom();
+            return nextMessage.id;
+        }
+
+        async function editAndResendMessage(message) {
+            if (getMessageImages(message).length) {
+                setStatus("鍥剧墖娑堟伅鏆備笉鏀寔缂栬緫鍚庨噸鍙?");
+                return;
+            }
+            const edited = window.prompt("淇敼鍚庝細浠庤繖閲岄噸鏂扮敓鎴愬悗缁璇濄€?", message.content);
+            if (edited === null) return;
+            const trimmed = edited.trim();
+            if (!trimmed) {
+                setStatus("娑堟伅涓嶈兘涓虹┖");
+                return;
+            }
+            const targetIndex = state.messages.findIndex((item) => item.id === message.id);
+            if (targetIndex < 0) {
+                setStatus("鏈壘鍒拌缂栬緫鐨勬秷鎭?");
+                return;
+            }
+            const previousMessages = state.messages.map((item) => {
+                const images = cloneImages(getMessageImages(item));
+                return {
+                    ...item,
+                    images,
+                    image: images[0] || null,
+                };
+            });
+            const optimisticAssistantId = uid();
+            state.messages = [
+                ...state.messages.slice(0, targetIndex),
+                { ...message, content: trimmed, images: [], image: null },
+                { id: optimisticAssistantId, role: "assistant", content: "", images: [], image: null },
+            ];
+            state.currentAssistantMessageId = optimisticAssistantId;
+            renderMessages();
+            setSending(true);
+            try {
+                const response = await fetch("/api/chat/stream", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        session_id: state.sessionId,
+                        message: trimmed,
+                        model: modelSelectEl.value,
+                        replace_from_message_id: message.id,
+                    }),
+                });
+
+                if (!response.ok) {
+                    const data = await response.json().catch(() => ({}));
+                    throw new Error(data.detail || "閲嶅彂澶辫触");
+                }
+
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder("utf-8");
+                let buffer = "";
+                let assistantText = "";
+
+                while (true) {
+                    const { value, done } = await reader.read();
+                    if (done) break;
+                    buffer += decoder.decode(value, { stream: true });
+                    const chunks = buffer.split("\n\n");
+                    buffer = chunks.pop() || "";
+
+                    for (const chunk of chunks) {
+                        const lines = chunk.split("\n");
+                        let eventName = "message";
+                        let dataText = "";
+
+                        for (const line of lines) {
+                            if (line.startsWith("event:")) eventName = line.slice(6).trim();
+                            if (line.startsWith("data:")) dataText += line.slice(5).trim();
+                        }
+
+                        if (!dataText) continue;
+                        const payload = JSON.parse(dataText);
+
+                        if (eventName === "start" && payload.session) {
+                            state.sessionId = payload.session.id;
+                            chatTitleEl.textContent = payload.session.title;
+                            chatSubtitleEl.textContent = payload.session.id;
+                        }
+                        if (eventName === "delta") {
+                            assistantText += payload.text || "";
+                            updateLocalMessage(state.currentAssistantMessageId, assistantText);
+                        }
+                        if (eventName === "done") {
+                            assistantText = payload.reply || assistantText;
+                            updateLocalMessage(state.currentAssistantMessageId, assistantText);
+                            if (payload.session) {
+                                chatTitleEl.textContent = payload.session.title;
+                                chatSubtitleEl.textContent = payload.session.id;
+                            }
+                            setStatus("宸查噸鏂扮敓鎴愬悗缁璇?");
+                            refreshSessions().catch(() => {});
+                            loadSession(state.sessionId).catch(() => {});
+                        }
+                        if (eventName === "error") {
+                            throw new Error(payload.detail || "閲嶅彂澶辫触");
+                        }
+                    }
+                }
+            } catch (error) {
+                state.messages = previousMessages;
+                renderMessages();
+                setStatus(error.message || "閲嶅彂澶辫触");
+            } finally {
+                state.currentAssistantMessageId = null;
+                setSending(false);
+            }
+        }
+
+        async function sendMessage() {
+            const message = messageInputEl.value.trim();
+            const selectedImages = cloneImages(state.selectedImages || []);
+            const images = normalizeImagesForRequest(selectedImages);
+            if ((!message && !images.length) || state.sending) return;
+            if (!state.sessionId) {
+                await createSession();
+            }
+            if (!state.sessionId) return;
+
+            const pendingMessage = message;
+            const pendingImages = images;
+            messageInputEl.value = "";
+            clearSelectedImage();
+            appendLocalMessage("user", pendingMessage, pendingImages);
+            state.currentAssistantMessageId = appendLocalMessage("assistant", "");
+            setSending(true);
+
+            try {
+                const response = await fetch("/api/chat/stream", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        session_id: state.sessionId,
+                        message: pendingMessage,
+                        images: pendingImages,
+                        model: modelSelectEl.value,
+                    }),
+                });
+
+                if (!response.ok) {
+                    const data = await response.json().catch(() => ({}));
+                    throw new Error(data.detail || "鍙戦€佸け璐?");
+                }
+
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder("utf-8");
+                let buffer = "";
+                let assistantText = "";
+
+                while (true) {
+                    const { value, done } = await reader.read();
+                    if (done) break;
+                    buffer += decoder.decode(value, { stream: true });
+                    const chunks = buffer.split("\n\n");
+                    buffer = chunks.pop() || "";
+
+                    for (const chunk of chunks) {
+                        const lines = chunk.split("\n");
+                        let eventName = "message";
+                        let dataText = "";
+
+                        for (const line of lines) {
+                            if (line.startsWith("event:")) eventName = line.slice(6).trim();
+                            if (line.startsWith("data:")) dataText += line.slice(5).trim();
+                        }
+
+                        if (!dataText) continue;
+                        const payload = JSON.parse(dataText);
+
+                        if (eventName === "start" && payload.session) {
+                            state.sessionId = payload.session.id;
+                            chatTitleEl.textContent = payload.session.title;
+                            chatSubtitleEl.textContent = payload.session.id;
+                        }
+                        if (eventName === "delta") {
+                            assistantText += payload.text || "";
+                            updateLocalMessage(state.currentAssistantMessageId, assistantText);
+                        }
+                        if (eventName === "done") {
+                            assistantText = payload.reply || assistantText;
+                            updateLocalMessage(state.currentAssistantMessageId, assistantText);
+                            if (payload.session) {
+                                chatTitleEl.textContent = payload.session.title;
+                                chatSubtitleEl.textContent = payload.session.id;
+                            }
+                            await refreshSessions();
+                        }
+                        if (eventName === "error") {
+                            throw new Error(payload.detail || "鍙戦€佸け璐?");
+                        }
+                    }
+                }
+            } catch (error) {
+                state.messages = state.messages.slice(0, -2);
+                state.selectedImages = selectedImages;
+                state.selectedImage = selectedImages[0] || null;
+                renderComposerImage();
+                renderMessages();
+                setStatus(error.message || "鍙戦€佸け璐?");
+            } finally {
+                state.currentAssistantMessageId = null;
+                setSending(false);
+                messageInputEl.focus();
+            }
+        }
+
         function switchAuthTab(tab) {
             document.querySelectorAll(".tab-btn").forEach((button) => {
                 button.classList.toggle("active", button.dataset.tab === tab);
@@ -1257,6 +2018,30 @@
             adminOverlayEl.classList.add("hidden");
         });
 
+        document.getElementById("image-lightbox-close").addEventListener("click", () => {
+            closeImageLightbox();
+        });
+
+        imageLightboxEl.addEventListener("click", (event) => {
+            if (event.target === imageLightboxEl) {
+                closeImageLightbox();
+            }
+        });
+
+        document.addEventListener("keydown", (event) => {
+            if (event.key === "Escape" && !imageLightboxEl.classList.contains("hidden")) {
+                closeImageLightbox();
+            }
+        });
+
+        composerImagePreviewEl.addEventListener("click", (event) => {
+            const target = event.target.closest(".zoomable-image");
+            if (!target) {
+                return;
+            }
+            openImageLightbox(target.dataset.previewSrc || target.getAttribute("src") || "");
+        });
+
         document.getElementById("refresh-admin-btn").addEventListener("click", async () => {
             await refreshAdminUsers();
         });
@@ -1288,6 +2073,26 @@
             } catch (error) {
                 clearSelectedImage();
                 setStatus(error.message || "选择图片失败");
+            }
+        });
+
+        messageInputEl.addEventListener("paste", async (event) => {
+            const items = Array.from(event.clipboardData?.items || []);
+            const imageItem = items.find((item) => item.type && item.type.startsWith("image/"));
+            if (!imageItem) {
+                return;
+            }
+            const file = imageItem.getAsFile();
+            if (!file) {
+                return;
+            }
+            event.preventDefault();
+            try {
+                await handleImageFile(file);
+                setStatus(`已粘贴图片：${file.name || "clipboard-image"}`);
+            } catch (error) {
+                clearSelectedImage();
+                setStatus(error.message || "粘贴图片失败");
             }
         });
 
@@ -1418,6 +2223,306 @@
                 setAuthStatus(error.message || "重置失败", true);
             }
         });
+
+        imageInputEl.addEventListener("change", async (event) => {
+            event.stopImmediatePropagation();
+            const files = Array.from(event.target.files || []);
+            if (!files.length) {
+                return;
+            }
+            try {
+                const addedImages = await handleImageFiles(files);
+                setStatus(`已添加 ${addedImages.length} 张图片`);
+            } catch (error) {
+                clearSelectedImage();
+                setStatus(error.message || "閫夋嫨鍥剧墖澶辫触");
+            }
+        }, true);
+
+        messageInputEl.addEventListener("paste", async (event) => {
+            const files = Array.from(event.clipboardData?.items || [])
+                .filter((item) => item.type && item.type.startsWith("image/"))
+                .map((item) => item.getAsFile())
+                .filter(Boolean);
+            if (!files.length) {
+                return;
+            }
+            event.preventDefault();
+            event.stopImmediatePropagation();
+            try {
+                const addedImages = await handleImageFiles(files);
+                setStatus(`已粘贴 ${addedImages.length} 张图片`);
+            } catch (error) {
+                clearSelectedImage();
+                setStatus(error.message || "绮樿创鍥剧墖澶辫触");
+            }
+        }, true);
+
+        function buildMessageHtml(message) {
+            const images = getMessageImages(message);
+            return `
+                <div class="message ${message.role}" data-message-id="${message.id}">
+                    <div class="message-top">
+                        <div class="message-role">${message.role === "user" ? "用户" : "AI"}</div>
+                        <div class="message-actions">
+                            ${message.role === "user" && !images.length ? `<button class="message-btn" type="button" data-edit-message="${message.id}">编辑后重发</button>` : ""}
+                            <button class="message-btn danger" type="button" data-delete-message="${message.id}">从此删除</button>
+                        </div>
+                    </div>
+                    ${buildMessageImagesHtml({ images })}
+                    <div class="message-content ${message.content ? "" : "hidden"}" data-message-content="${message.id}">${message.content ? formatMessageContent(message) : ""}</div>
+                </div>
+            `;
+        }
+
+        async function handleImageFile(file) {
+            if (!file) {
+                return null;
+            }
+            if (!SUPPORTED_IMAGE_TYPES.has(file.type)) {
+                throw new Error("仅支持 JPG、PNG、WEBP、GIF 图片");
+            }
+            if (file.size > MAX_IMAGE_BYTES) {
+                throw new Error("图片不能超过 5 MB");
+            }
+
+            const dataUrl = await new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = () => resolve(reader.result);
+                reader.onerror = () => reject(new Error("读取图片失败"));
+                reader.readAsDataURL(file);
+            });
+
+            const dataUrlText = String(dataUrl || "");
+            const commaIndex = dataUrlText.indexOf(",");
+            if (commaIndex < 0) {
+                throw new Error("图片编码失败");
+            }
+
+            const image = {
+                name: file.name,
+                media_type: file.type,
+                data: dataUrlText.slice(commaIndex + 1),
+                preview_url: dataUrlText,
+            };
+            state.selectedImages = [...(state.selectedImages || []), image];
+            state.selectedImage = state.selectedImages[0] || image;
+            renderComposerImage();
+            return image;
+        }
+
+        async function editAndResendMessage(message) {
+            if (getMessageImages(message).length) {
+                setStatus("图片消息暂不支持编辑后重发");
+                return;
+            }
+            const edited = window.prompt("修改后会从这里重新生成后续对话。", message.content);
+            if (edited === null) return;
+
+            const trimmed = edited.trim();
+            if (!trimmed) {
+                setStatus("消息不能为空");
+                return;
+            }
+
+            const targetIndex = state.messages.findIndex((item) => item.id === message.id);
+            if (targetIndex < 0) {
+                setStatus("未找到要编辑的消息");
+                return;
+            }
+
+            const previousMessages = state.messages.map((item) => {
+                const images = cloneImages(getMessageImages(item));
+                return {
+                    ...item,
+                    images,
+                    image: images[0] || null,
+                };
+            });
+
+            const optimisticAssistantId = uid();
+            state.messages = [
+                ...state.messages.slice(0, targetIndex),
+                { ...message, content: trimmed, images: [], image: null },
+                { id: optimisticAssistantId, role: "assistant", content: "", images: [], image: null },
+            ];
+            state.currentAssistantMessageId = optimisticAssistantId;
+            renderMessages();
+            setSending(true);
+
+            try {
+                const response = await fetch("/api/chat/stream", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        session_id: state.sessionId,
+                        message: trimmed,
+                        model: modelSelectEl.value,
+                        replace_from_message_id: message.id,
+                    }),
+                });
+
+                if (!response.ok) {
+                    const data = await response.json().catch(() => ({}));
+                    throw new Error(data.detail || "重发失败");
+                }
+
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder("utf-8");
+                let buffer = "";
+                let assistantText = "";
+
+                while (true) {
+                    const { value, done } = await reader.read();
+                    if (done) break;
+                    buffer += decoder.decode(value, { stream: true });
+                    const chunks = buffer.split("\n\n");
+                    buffer = chunks.pop() || "";
+
+                    for (const chunk of chunks) {
+                        const lines = chunk.split("\n");
+                        let eventName = "message";
+                        let dataText = "";
+
+                        for (const line of lines) {
+                            if (line.startsWith("event:")) eventName = line.slice(6).trim();
+                            if (line.startsWith("data:")) dataText += line.slice(5).trim();
+                        }
+
+                        if (!dataText) continue;
+                        const payload = JSON.parse(dataText);
+
+                        if (eventName === "start" && payload.session) {
+                            state.sessionId = payload.session.id;
+                            chatTitleEl.textContent = payload.session.title;
+                            chatSubtitleEl.textContent = payload.session.id;
+                        }
+                        if (eventName === "delta") {
+                            assistantText += payload.text || "";
+                            updateLocalMessage(state.currentAssistantMessageId, assistantText);
+                        }
+                        if (eventName === "done") {
+                            assistantText = payload.reply || assistantText;
+                            updateLocalMessage(state.currentAssistantMessageId, assistantText);
+                            if (payload.session) {
+                                chatTitleEl.textContent = payload.session.title;
+                                chatSubtitleEl.textContent = payload.session.id;
+                            }
+                            setStatus("已重新生成后续对话");
+                            refreshSessions().catch(() => {});
+                            loadSession(state.sessionId).catch(() => {});
+                        }
+                        if (eventName === "error") {
+                            throw new Error(payload.detail || "重发失败");
+                        }
+                    }
+                }
+            } catch (error) {
+                state.messages = previousMessages;
+                renderMessages();
+                setStatus(error.message || "重发失败");
+            } finally {
+                state.currentAssistantMessageId = null;
+                setSending(false);
+            }
+        }
+
+        async function sendMessage() {
+            const message = messageInputEl.value.trim();
+            const selectedImages = cloneImages(state.selectedImages || []);
+            const images = normalizeImagesForRequest(selectedImages);
+            if ((!message && !images.length) || state.sending) return;
+            if (!state.sessionId) {
+                await createSession();
+            }
+            if (!state.sessionId) return;
+
+            const pendingMessage = message;
+            const pendingImages = images;
+            messageInputEl.value = "";
+            clearSelectedImage();
+            appendLocalMessage("user", pendingMessage, pendingImages);
+            state.currentAssistantMessageId = appendLocalMessage("assistant", "");
+            setSending(true);
+
+            try {
+                const response = await fetch("/api/chat/stream", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        session_id: state.sessionId,
+                        message: pendingMessage,
+                        images: pendingImages,
+                        model: modelSelectEl.value,
+                    }),
+                });
+
+                if (!response.ok) {
+                    const data = await response.json().catch(() => ({}));
+                    throw new Error(data.detail || "发送失败");
+                }
+
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder("utf-8");
+                let buffer = "";
+                let assistantText = "";
+
+                while (true) {
+                    const { value, done } = await reader.read();
+                    if (done) break;
+                    buffer += decoder.decode(value, { stream: true });
+                    const chunks = buffer.split("\n\n");
+                    buffer = chunks.pop() || "";
+
+                    for (const chunk of chunks) {
+                        const lines = chunk.split("\n");
+                        let eventName = "message";
+                        let dataText = "";
+
+                        for (const line of lines) {
+                            if (line.startsWith("event:")) eventName = line.slice(6).trim();
+                            if (line.startsWith("data:")) dataText += line.slice(5).trim();
+                        }
+
+                        if (!dataText) continue;
+                        const payload = JSON.parse(dataText);
+
+                        if (eventName === "start" && payload.session) {
+                            state.sessionId = payload.session.id;
+                            chatTitleEl.textContent = payload.session.title;
+                            chatSubtitleEl.textContent = payload.session.id;
+                        }
+                        if (eventName === "delta") {
+                            assistantText += payload.text || "";
+                            updateLocalMessage(state.currentAssistantMessageId, assistantText);
+                        }
+                        if (eventName === "done") {
+                            assistantText = payload.reply || assistantText;
+                            updateLocalMessage(state.currentAssistantMessageId, assistantText);
+                            if (payload.session) {
+                                chatTitleEl.textContent = payload.session.title;
+                                chatSubtitleEl.textContent = payload.session.id;
+                            }
+                            await refreshSessions();
+                        }
+                        if (eventName === "error") {
+                            throw new Error(payload.detail || "发送失败");
+                        }
+                    }
+                }
+            } catch (error) {
+                state.messages = state.messages.slice(0, -2);
+                state.selectedImages = selectedImages;
+                state.selectedImage = selectedImages[0] || null;
+                renderComposerImage();
+                renderMessages();
+                setStatus(error.message || "发送失败");
+            } finally {
+                state.currentAssistantMessageId = null;
+                setSending(false);
+                messageInputEl.focus();
+            }
+        }
 
         async function init() {
             renderKeyMeta();

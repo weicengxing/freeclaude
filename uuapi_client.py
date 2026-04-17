@@ -78,23 +78,30 @@ def build_headers(api_key: str, session_id: str) -> dict[str, str]:
 def to_claude_message(message: dict[str, Any]) -> dict[str, Any]:
     role = str(message.get("role", "user"))
     text = str(message.get("content", "") or "")
-    image = message.get("image")
+    images = message.get("images")
     content: list[dict[str, Any]] = []
 
-    if role == "user" and isinstance(image, dict):
-        media_type = str(image.get("media_type", "")).strip().lower()
-        data = str(image.get("data", "")).strip()
-        if media_type in SUPPORTED_IMAGE_MEDIA_TYPES and data:
-            content.append(
-                {
-                    "type": "image",
-                    "source": {
-                        "type": "base64",
-                        "media_type": media_type,
-                        "data": data,
-                    },
-                }
-            )
+    if role == "user":
+        raw_images = images if isinstance(images, list) else []
+        if not raw_images and isinstance(message.get("image"), dict):
+            raw_images = [message["image"]]
+
+        for image in raw_images:
+            if not isinstance(image, dict):
+                continue
+            media_type = str(image.get("media_type", "")).strip().lower()
+            data = str(image.get("data", "")).strip()
+            if media_type in SUPPORTED_IMAGE_MEDIA_TYPES and data:
+                content.append(
+                    {
+                        "type": "image",
+                        "source": {
+                            "type": "base64",
+                            "media_type": media_type,
+                            "data": data,
+                        },
+                    }
+                )
 
     if text or not content:
         content.append(
