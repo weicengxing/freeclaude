@@ -12,16 +12,19 @@ import uuid
 from contextlib import closing
 from datetime import datetime, timedelta
 from email.utils import formataddr
+from io import BytesIO
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from pathlib import Path
 from typing import Any
 
 import httpx
+from docx import Document as DocxDocument
 from fastapi import Cookie, FastAPI, HTTPException, Request, Response
 from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from pypdf import PdfReader
 from pydantic import BaseModel, EmailStr, Field
 
 from uuapi_client import (
@@ -50,7 +53,19 @@ VERIFY_PURPOSE_RESET = "reset"
 DEFAULT_USER_KEY_BATCH_SIZE = 5
 LEGACY_FIXED_USER_KEY_BATCH_SIZE = 5
 MAX_IMAGE_BYTES = 5 * 1024 * 1024
+MAX_DOCUMENT_BYTES = 10 * 1024 * 1024
 STRUCTURED_MESSAGE_VERSION = 1
+MAX_FILE_PROMPT_CHARS = 40_000
+SUPPORTED_DOCUMENT_MEDIA_TYPES = {
+    "text/plain",
+    "application/pdf",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+}
+DOCUMENT_EXTENSION_MEDIA_TYPES = {
+    ".txt": "text/plain",
+    ".pdf": "application/pdf",
+    ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+}
 
 
 def get_env_int(name: str, default: int, minimum: int = 1) -> int:
@@ -86,11 +101,18 @@ class ImagePayload(BaseModel):
     name: str | None = None
 
 
+class FilePayload(BaseModel):
+    media_type: str = ""
+    data: str = Field(min_length=1)
+    name: str | None = None
+
+
 class ChatRequest(BaseModel):
     session_id: str
     message: str = ""
     image: ImagePayload | None = None
     images: list[ImagePayload] = Field(default_factory=list)
+    files: list[FilePayload] = Field(default_factory=list)
     model: str = DEFAULT_MODEL
     replace_from_message_id: int | None = None
 
@@ -299,11 +321,183 @@ def normalize_request_images(
     return [normalized_image] if normalized_image is not None else []
 
 
+def normalize_document_media_type(media_type: str | None, name: str | None) -> str:
+    normalized_media_type = str(media_type or "").strip().lower()
+    normalized_name = str(name or "").strip().lower()
+    guessed_media_type = DOCUMENT_EXTENSION_MEDIA_TYPES.get(Path(normalized_name).suffix)
+    if normalized_media_type in SUPPORTED_DOCUMENT_MEDIA_TYPES:
+        return normalized_media_type
+    if normalized_media_type in {"", "application/octet-stream"} and guessed_media_type:
+        return guessed_media_type
+    return normalized_media_type
+
+
+def normalize_file_payload(file_payload: FilePayload | dict[str, Any] | None) -> dict[str, str] | None:
+    if file_payload is None:
+        return None
+
+    raw = model_to_dict(file_payload) if isinstance(file_payload, BaseModel) else file_payload
+    if raw is None:
+        return None
+
+    name = str(raw.get("name", "")).strip()
+    media_type = normalize_document_media_type(raw.get("media_type"), name)
+    data = str(raw.get("data", "")).strip()
+
+    if media_type not in SUPPORTED_DOCUMENT_MEDIA_TYPES:
+        raise HTTPException(status_code=400, detail="Unsupported file format; only txt, docx, pdf are allowed")
+    if not data:
+        raise HTTPException(status_code=400, detail="File data cannot be empty")
+
+    try:
+        file_bytes = base64.b64decode(data, validate=True)
+    except (binascii.Error, ValueError) as exc:
+        raise HTTPException(status_code=400, detail="File data must be valid base64") from exc
+
+    if not file_bytes:
+        raise HTTPException(status_code=400, detail="File data cannot be empty")
+    if len(file_bytes) > MAX_DOCUMENT_BYTES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"File too large; max {MAX_DOCUMENT_BYTES // (1024 * 1024)} MB",
+        )
+
+    normalized = {
+        "media_type": media_type,
+        "data": base64.b64encode(file_bytes).decode("ascii"),
+    }
+    if name:
+        normalized["name"] = name[:255]
+    return normalized
+
+
+def normalize_request_files(files: list[FilePayload | dict[str, Any]] | None) -> list[dict[str, str]]:
+    normalized_files: list[dict[str, str]] = []
+    for file_payload in files or []:
+        normalized_file = normalize_file_payload(file_payload)
+        if normalized_file is not None:
+            normalized_files.append(normalized_file)
+    return normalized_files
+
+
 def assign_message_images(target: dict[str, Any], images: list[dict[str, str]]) -> dict[str, Any]:
     if images:
         target["images"] = images
         target["image"] = images[0]
     return target
+
+
+def assign_message_files(target: dict[str, Any], files: list[dict[str, Any]]) -> dict[str, Any]:
+    if files:
+        target["files"] = files
+    return target
+
+
+def decode_text_file_bytes(file_bytes: bytes) -> str:
+    for encoding in ("utf-8-sig", "utf-8", "gb18030", "gbk"):
+        try:
+            return file_bytes.decode(encoding)
+        except UnicodeDecodeError:
+            continue
+    return file_bytes.decode("utf-8", errors="replace")
+
+
+def extract_docx_text(file_bytes: bytes) -> str:
+    document = DocxDocument(BytesIO(file_bytes))
+    blocks: list[str] = []
+    for paragraph in document.paragraphs:
+        text = paragraph.text.strip()
+        if text:
+            blocks.append(text)
+    for table in document.tables:
+        for row in table.rows:
+            cells = [cell.text.strip() for cell in row.cells if cell.text and cell.text.strip()]
+            if cells:
+                blocks.append(" | ".join(cells))
+    return "\n".join(blocks)
+
+
+def extract_pdf_text(file_bytes: bytes) -> str:
+    reader = PdfReader(BytesIO(file_bytes))
+    pages: list[str] = []
+    for index, page in enumerate(reader.pages, start=1):
+        page_text = (page.extract_text() or "").strip()
+        if page_text:
+            pages.append(f"[Page {index}]\n{page_text}")
+    return "\n\n".join(pages)
+
+
+def parse_uploaded_file(file_payload: dict[str, str]) -> tuple[str, str]:
+    media_type = str(file_payload.get("media_type", "")).strip().lower()
+    file_bytes = base64.b64decode(file_payload["data"])
+    if media_type == "text/plain":
+        return decode_text_file_bytes(file_bytes).strip(), "text"
+    if media_type == "application/pdf":
+        return extract_pdf_text(file_bytes).strip(), "pypdf"
+    if media_type == "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
+        return extract_docx_text(file_bytes).strip(), "python-docx"
+    raise HTTPException(status_code=400, detail="Unsupported file format")
+
+
+def prepare_message_files(files: list[dict[str, str]]) -> list[dict[str, Any]]:
+    prepared_files: list[dict[str, Any]] = []
+    for file_payload in files:
+        parsed_text, parser_name = parse_uploaded_file(file_payload)
+        file_name = str(file_payload.get("name", "")).strip() or "attachment"
+        if not parsed_text:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Could not extract readable text from {file_name}. Scanned PDF/image-only files are not supported yet.",
+            )
+        prepared_files.append(
+            {
+                **file_payload,
+                "name": file_name[:255],
+                "parsed_text": parsed_text,
+                "parser_name": parser_name,
+                "parsed_char_count": len(parsed_text),
+            }
+        )
+    return prepared_files
+
+
+def build_file_prompt(files: list[dict[str, Any]] | None) -> str:
+    if not files:
+        return ""
+
+    parts = [
+        "以下是用户上传附件解析后的文本，请把它们当作用户补充提供的材料来理解和回答。",
+        "如果附件解析结果里有格式噪声、页眉页脚或乱码，请自行甄别，不要把这些噪声当作用户真实意图。",
+    ]
+    for index, file_payload in enumerate(files, start=1):
+        parsed_text = str(file_payload.get("parsed_text", "") or "").strip()
+        if not parsed_text:
+            continue
+        truncated = parsed_text
+        if len(truncated) > MAX_FILE_PROMPT_CHARS:
+            truncated = truncated[:MAX_FILE_PROMPT_CHARS].rstrip() + "\n\n[附件解析内容过长，后续内容已截断]"
+        parts.append(
+            "\n".join(
+                [
+                    f"[附件 {index}]",
+                    f"文件名: {file_payload.get('name') or f'attachment-{index}'}",
+                    f"文件类型: {file_payload.get('media_type') or 'unknown'}",
+                    "解析文本:",
+                    truncated,
+                ]
+            )
+        )
+    return "\n\n".join(parts)
+
+
+def build_model_message_content(content: str, files: list[dict[str, Any]] | None = None) -> str:
+    file_prompt = build_file_prompt(files)
+    text = str(content or "").strip()
+    if text and file_prompt:
+        return f"{text}\n\n{file_prompt}"
+    if file_prompt:
+        return file_prompt
+    return text
 
 
 def parse_stored_message_content(raw_content: str) -> dict[str, Any]:
@@ -344,12 +538,18 @@ def serialize_message_content(content: str, images: list[dict[str, str]] | None 
     return json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
 
 
-def build_title_for_message(message_text: str, images: list[dict[str, Any]] | None = None) -> str:
+def build_title_for_message(
+    message_text: str,
+    images: list[dict[str, Any]] | None = None,
+    files: list[dict[str, Any]] | None = None,
+) -> str:
     compact = " ".join(message_text.split()).strip()
     if compact:
         return build_title(compact)
     if images:
         return "图片消息"
+    if files:
+        return "文件消息"
     return "New Chat"
 
 
@@ -526,6 +726,20 @@ def init_db() -> None:
                 FOREIGN KEY (session_id) REFERENCES sessions(id)
             );
 
+            CREATE TABLE IF NOT EXISTS message_files (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                message_id INTEGER NOT NULL,
+                session_id TEXT NOT NULL,
+                name TEXT NOT NULL,
+                media_type TEXT NOT NULL,
+                original_data TEXT NOT NULL,
+                parsed_text TEXT NOT NULL,
+                parser_name TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                FOREIGN KEY (message_id) REFERENCES messages(id),
+                FOREIGN KEY (session_id) REFERENCES sessions(id)
+            );
+
             CREATE TABLE IF NOT EXISTS api_keys (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 api_key TEXT NOT NULL,
@@ -535,6 +749,12 @@ def init_db() -> None:
 
             CREATE UNIQUE INDEX IF NOT EXISTS idx_api_keys_api_key
             ON api_keys(api_key);
+
+            CREATE INDEX IF NOT EXISTS idx_message_files_message_id
+            ON message_files(message_id);
+
+            CREATE INDEX IF NOT EXISTS idx_message_files_session_id
+            ON message_files(session_id);
 
             CREATE TABLE IF NOT EXISTS api_key_allocator_state (
                 singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
@@ -680,20 +900,150 @@ def add_message(
     role: str,
     content: str,
     images: list[dict[str, str]] | None = None,
-) -> None:
-    now = utc_now()
-    connection.execute(
-        """
-        INSERT INTO messages (session_id, role, content, created_at)
-        VALUES (?, ?, ?, ?)
-        """,
-        (session_id, role, serialize_message_content(content, images), now),
-    )
+    files: list[dict[str, Any]] | None = None,
+    *,
+    message_id: int | None = None,
+    created_at: str | None = None,
+) -> int:
+    now = created_at or utc_now()
+    if message_id is None:
+        cursor = connection.execute(
+            """
+            INSERT INTO messages (session_id, role, content, created_at)
+            VALUES (?, ?, ?, ?)
+            """,
+            (session_id, role, serialize_message_content(content, images), now),
+        )
+        inserted_message_id = int(cursor.lastrowid)
+    else:
+        connection.execute(
+            """
+            INSERT INTO messages (id, session_id, role, content, created_at)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (message_id, session_id, role, serialize_message_content(content, images), now),
+        )
+        inserted_message_id = message_id
+    insert_message_files(connection, inserted_message_id, session_id, files or [], created_at=now)
     connection.execute(
         "UPDATE sessions SET updated_at = ? WHERE id = ?",
         (now, session_id),
     )
     connection.commit()
+    return inserted_message_id
+
+
+def insert_message_files(
+    connection: sqlite3.Connection,
+    message_id: int,
+    session_id: str,
+    files: list[dict[str, Any]],
+    *,
+    created_at: str,
+) -> None:
+    for file_payload in files:
+        connection.execute(
+            """
+            INSERT INTO message_files (
+                message_id,
+                session_id,
+                name,
+                media_type,
+                original_data,
+                parsed_text,
+                parser_name,
+                created_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                message_id,
+                session_id,
+                str(file_payload.get("name", "") or "attachment")[:255],
+                str(file_payload.get("media_type", "") or ""),
+                str(file_payload.get("data", "") or ""),
+                str(file_payload.get("parsed_text", "") or ""),
+                str(file_payload.get("parser_name", "") or "unknown"),
+                created_at,
+            ),
+        )
+
+
+def build_message_file_row(row: sqlite3.Row, include_file_content: bool, include_original_data: bool) -> dict[str, Any]:
+    item = {
+        "id": row["id"],
+        "message_id": row["message_id"],
+        "session_id": row["session_id"],
+        "name": row["name"],
+        "media_type": row["media_type"],
+        "parser_name": row["parser_name"],
+        "created_at": row["created_at"],
+        "parsed_char_count": int(row["parsed_char_count"] or 0),
+    }
+    if include_file_content:
+        item["parsed_text"] = row["parsed_text"]
+    if include_original_data:
+        item["data"] = row["original_data"]
+    return item
+
+
+def get_message_files_map(
+    connection: sqlite3.Connection,
+    message_ids: list[int],
+    *,
+    include_file_content: bool = False,
+    include_original_data: bool = False,
+) -> dict[int, list[dict[str, Any]]]:
+    if not message_ids:
+        return {}
+
+    placeholders = ",".join("?" for _ in message_ids)
+    select_columns = [
+        "id",
+        "message_id",
+        "session_id",
+        "name",
+        "media_type",
+        "parser_name",
+        "created_at",
+        "LENGTH(parsed_text) AS parsed_char_count",
+    ]
+    if include_file_content:
+        select_columns.append("parsed_text")
+    if include_original_data:
+        select_columns.append("original_data")
+
+    rows = connection.execute(
+        f"""
+        SELECT {", ".join(select_columns)}
+        FROM message_files
+        WHERE message_id IN ({placeholders})
+        ORDER BY id ASC
+        """,
+        message_ids,
+    ).fetchall()
+    mapping: dict[int, list[dict[str, Any]]] = {}
+    for row in rows:
+        message_id = int(row["message_id"])
+        mapping.setdefault(message_id, []).append(
+            build_message_file_row(row, include_file_content, include_original_data)
+        )
+    return mapping
+
+
+def delete_message_files_by_ids(connection: sqlite3.Connection, message_ids: list[int]) -> None:
+    if not message_ids:
+        return
+    placeholders = ",".join("?" for _ in message_ids)
+    connection.execute(
+        f"DELETE FROM message_files WHERE message_id IN ({placeholders})",
+        message_ids,
+    )
+
+
+def delete_message_files_by_query(connection: sqlite3.Connection, query: str, params: tuple[Any, ...]) -> None:
+    message_ids = [int(row["id"]) for row in connection.execute(query, params).fetchall()]
+    delete_message_files_by_ids(connection, message_ids)
 
 
 def update_session_metadata(
@@ -737,6 +1087,19 @@ def cleanup_expired_session_messages(
     retention_days: int = MESSAGE_RETENTION_DAYS,
 ) -> None:
     cutoff = (datetime.utcnow() - timedelta(days=retention_days)).replace(microsecond=0).isoformat() + "Z"
+    delete_message_files_by_query(
+        connection,
+        """
+        SELECT messages.id
+        FROM messages
+        JOIN sessions ON sessions.id = messages.session_id
+        WHERE messages.session_id = ?
+          AND messages.created_at < ?
+          AND sessions.id = ?
+          AND sessions.user_id = ?
+        """,
+        (session_id, cutoff, session_id, user_id),
+    )
     connection.execute(
         """
         DELETE FROM messages
@@ -754,6 +1117,11 @@ def cleanup_expired_messages(
     retention_days: int = MESSAGE_RETENTION_DAYS,
 ) -> int:
     cutoff = (datetime.utcnow() - timedelta(days=retention_days)).replace(microsecond=0).isoformat() + "Z"
+    delete_message_files_by_query(
+        connection,
+        "SELECT id FROM messages WHERE created_at < ?",
+        (cutoff,),
+    )
     cursor = connection.execute(
         """
         DELETE FROM messages
@@ -765,7 +1133,14 @@ def cleanup_expired_messages(
     return max(cursor.rowcount, 0)
 
 
-def get_messages(connection: sqlite3.Connection, session_id: str, user_id: int) -> list[dict]:
+def get_messages(
+    connection: sqlite3.Connection,
+    session_id: str,
+    user_id: int,
+    *,
+    include_file_content: bool = False,
+    include_original_data: bool = False,
+) -> list[dict]:
     rows = connection.execute(
         """
         SELECT messages.id, messages.session_id, messages.role, messages.content, messages.created_at
@@ -776,12 +1151,19 @@ def get_messages(connection: sqlite3.Connection, session_id: str, user_id: int) 
         """,
         (session_id, user_id),
     ).fetchall()
+    file_map = get_message_files_map(
+        connection,
+        [int(row["id"]) for row in rows],
+        include_file_content=include_file_content,
+        include_original_data=include_original_data,
+    )
     messages: list[dict] = []
     for row in rows:
         item = dict(row)
         parsed = parse_stored_message_content(item["content"])
         item["content"] = parsed["content"]
         assign_message_images(item, parsed.get("images") or [])
+        assign_message_files(item, file_map.get(int(item["id"]), []))
         messages.append(item)
     return messages
 
@@ -798,7 +1180,15 @@ def get_session(connection: sqlite3.Connection, session_id: str, user_id: int) -
     return dict(session) if session is not None else None
 
 
-def get_message(connection: sqlite3.Connection, session_id: str, user_id: int, message_id: int) -> dict | None:
+def get_message(
+    connection: sqlite3.Connection,
+    session_id: str,
+    user_id: int,
+    message_id: int,
+    *,
+    include_file_content: bool = False,
+    include_original_data: bool = False,
+) -> dict | None:
     row = connection.execute(
         """
         SELECT messages.id, messages.session_id, messages.role, messages.content, messages.created_at
@@ -814,11 +1204,33 @@ def get_message(connection: sqlite3.Connection, session_id: str, user_id: int, m
     parsed = parse_stored_message_content(item["content"])
     item["content"] = parsed["content"]
     assign_message_images(item, parsed.get("images") or [])
+    assign_message_files(
+        item,
+        get_message_files_map(
+            connection,
+            [int(message_id)],
+            include_file_content=include_file_content,
+            include_original_data=include_original_data,
+        ).get(int(message_id), []),
+    )
     return item
 
 
 def delete_messages_from(connection: sqlite3.Connection, session_id: str, user_id: int, message_id: int) -> None:
     now = utc_now()
+    delete_message_files_by_query(
+        connection,
+        """
+        SELECT messages.id
+        FROM messages
+        JOIN sessions ON sessions.id = messages.session_id
+        WHERE messages.session_id = ?
+          AND messages.id >= ?
+          AND sessions.id = ?
+          AND sessions.user_id = ?
+        """,
+        (session_id, message_id, session_id, user_id),
+    )
     connection.execute(
         """
         DELETE FROM messages
@@ -836,6 +1248,18 @@ def delete_messages_from(connection: sqlite3.Connection, session_id: str, user_i
 
 
 def delete_session_record(connection: sqlite3.Connection, session_id: str, user_id: int) -> None:
+    delete_message_files_by_query(
+        connection,
+        """
+        SELECT messages.id
+        FROM messages
+        JOIN sessions ON sessions.id = messages.session_id
+        WHERE messages.session_id = ?
+          AND sessions.id = ?
+          AND sessions.user_id = ?
+        """,
+        (session_id, session_id, user_id),
+    )
     connection.execute(
         """
         DELETE FROM messages
@@ -1168,9 +1592,10 @@ def send_chat_with_user_api_key(
 def build_request_messages(history: list[dict]) -> list[dict[str, Any]]:
     request_messages: list[dict[str, Any]] = []
     for item in history:
+        files = item.get("files") if isinstance(item.get("files"), list) else []
         message: dict[str, Any] = {
             "role": item["role"],
-            "content": item.get("content", ""),
+            "content": build_model_message_content(item.get("content", ""), files if item.get("role") == "user" else []),
         }
         images = item.get("images")
         if isinstance(images, list) and images:
@@ -1183,18 +1608,15 @@ def build_request_messages(history: list[dict]) -> list[dict[str, Any]]:
 
 def restore_messages(connection: sqlite3.Connection, messages: list[dict]) -> None:
     for item in messages:
-        connection.execute(
-            """
-            INSERT INTO messages (id, session_id, role, content, created_at)
-            VALUES (?, ?, ?, ?, ?)
-            """,
-            (
-                item["id"],
-                item["session_id"],
-                item["role"],
-                serialize_message_content(item.get("content", ""), item.get("images") or []),
-                item["created_at"],
-            ),
+        add_message(
+            connection=connection,
+            session_id=item["session_id"],
+            role=item["role"],
+            content=item.get("content", ""),
+            images=item.get("images") or [],
+            files=item.get("files") or [],
+            message_id=int(item["id"]),
+            created_at=item["created_at"],
         )
     connection.commit()
 
@@ -1407,6 +1829,7 @@ def send_and_persist_reply(
     user_id: int,
     message_text: str,
     images: list[dict[str, str]],
+    files: list[dict[str, Any]],
     model: str,
     replace_from_message_id: int | None = None,
 ) -> tuple[dict, list[dict], str]:
@@ -1420,16 +1843,23 @@ def send_and_persist_reply(
         if target_message is None:
             raise HTTPException(status_code=404, detail="Message not found")
         removed_suffix = [
-            item for item in get_messages(connection, session_id, user_id) if item["id"] >= replace_from_message_id
+            item
+            for item in get_messages(connection, session_id, user_id, include_file_content=True, include_original_data=True)
+            if item["id"] >= replace_from_message_id
         ]
         delete_messages_from(connection, session_id, user_id, replace_from_message_id)
 
-    history_before = get_messages(connection, session_id, user_id)
-    add_message(connection, session_id, "user", message_text, images=images)
+    history_before = get_messages(connection, session_id, user_id, include_file_content=True)
+    add_message(connection, session_id, "user", message_text, images=images, files=files)
 
     should_autobuild_title = not history_before and (current_session is None or current_session["title"] == "New Chat")
-    title = build_title_for_message(message_text, images) if should_autobuild_title else None
-    request_messages = build_request_messages([*history_before, {"role": "user", "content": message_text, "images": images}])
+    title = build_title_for_message(message_text, images, files) if should_autobuild_title else None
+    request_messages = build_request_messages(
+        [
+            *history_before,
+            {"role": "user", "content": message_text, "images": images, "files": files},
+        ]
+    )
 
     try:
         response = send_chat_with_user_api_key(
@@ -1451,6 +1881,7 @@ def send_and_persist_reply(
             (session_id,),
         ).fetchone()
         if latest_user is not None:
+            delete_message_files_by_ids(connection, [int(latest_user["id"])])
             connection.execute("DELETE FROM messages WHERE id = ?", (latest_user["id"],))
             connection.commit()
         if removed_suffix:
@@ -1468,6 +1899,7 @@ def send_and_persist_reply(
             (session_id,),
         ).fetchone()
         if latest_user is not None:
+            delete_message_files_by_ids(connection, [int(latest_user["id"])])
             connection.execute("DELETE FROM messages WHERE id = ?", (latest_user["id"],))
             connection.commit()
         if removed_suffix:
@@ -1944,7 +2376,11 @@ def api_delete_message(session_id: str, message_id: int, user_session: str | Non
             title = (
                 session["title"]
                 if session["title"] != "New Chat"
-                else build_title_for_message(first_user["content"], first_user.get("images") or []) if first_user else "New Chat"
+                else build_title_for_message(
+                    first_user["content"],
+                    first_user.get("images") or [],
+                    first_user.get("files") or [],
+                ) if first_user else "New Chat"
             )
 
         update_session_metadata(connection, session_id, user["id"], session["model"], title=title)
@@ -1974,8 +2410,8 @@ def api_resend_message(
             raise HTTPException(status_code=404, detail="Message not found")
         if target_message["role"] != "user":
             raise HTTPException(status_code=400, detail="Only user messages can be edited and resent")
-        if target_message.get("images"):
-            raise HTTPException(status_code=400, detail="Image messages cannot be edited and resent yet")
+        if target_message.get("images") or target_message.get("files"):
+            raise HTTPException(status_code=400, detail="Messages with attachments cannot be edited and resent yet")
 
         session, messages, assistant_text = send_and_persist_reply(
             connection=connection,
@@ -1983,6 +2419,7 @@ def api_resend_message(
             user_id=user["id"],
             message_text=message_text,
             images=[],
+            files=[],
             model=payload.model,
             replace_from_message_id=message_id,
         )
@@ -1998,8 +2435,9 @@ def api_resend_message(
 def api_chat(payload: ChatRequest, user_session: str | None = Cookie(default=None)) -> dict:
     message_text = payload.message.strip()
     images = normalize_request_images(payload.image, payload.images)
-    if not message_text and not images:
-        raise HTTPException(status_code=400, detail="Message or image is required")
+    files = prepare_message_files(normalize_request_files(payload.files))
+    if not message_text and not images and not files:
+        raise HTTPException(status_code=400, detail="Message, image, or file is required")
 
     with closing(get_connection()) as connection:
         user = require_user(connection, user_session)
@@ -2009,6 +2447,7 @@ def api_chat(payload: ChatRequest, user_session: str | None = Cookie(default=Non
             user_id=user["id"],
             message_text=message_text,
             images=images,
+            files=files,
             model=payload.model,
         )
 
@@ -2023,8 +2462,9 @@ def api_chat(payload: ChatRequest, user_session: str | None = Cookie(default=Non
 def api_chat_stream(payload: ChatRequest, user_session: str | None = Cookie(default=None)) -> StreamingResponse:
     message_text = payload.message.strip()
     images = normalize_request_images(payload.image, payload.images)
-    if not message_text and not images:
-        raise HTTPException(status_code=400, detail="Message or image is required")
+    files = prepare_message_files(normalize_request_files(payload.files))
+    if not message_text and not images and not files:
+        raise HTTPException(status_code=400, detail="Message, image, or file is required")
 
     with closing(get_connection()) as connection:
         user = require_user(connection, user_session)
@@ -2037,18 +2477,26 @@ def api_chat_stream(payload: ChatRequest, user_session: str | None = Cookie(defa
                 raise HTTPException(status_code=404, detail="Message not found")
             if target_message["role"] != "user":
                 raise HTTPException(status_code=400, detail="Only user messages can be edited and resent")
-            if target_message.get("images"):
-                raise HTTPException(status_code=400, detail="Image messages cannot be edited and resent yet")
+            if target_message.get("images") or target_message.get("files"):
+                raise HTTPException(status_code=400, detail="Messages with attachments cannot be edited and resent yet")
             removed_suffix = [
-                item for item in get_messages(connection, payload.session_id, user["id"]) if item["id"] >= replace_from_message_id
+                item
+                for item in get_messages(
+                    connection,
+                    payload.session_id,
+                    user["id"],
+                    include_file_content=True,
+                    include_original_data=True,
+                )
+                if item["id"] >= replace_from_message_id
             ]
             delete_messages_from(connection, payload.session_id, user["id"], replace_from_message_id)
         elif not session_exists(connection, payload.session_id, user["id"]):
             create_session_record(connection, payload.session_id, user["id"], payload.model)
 
         current_session = get_session(connection, payload.session_id, user["id"])
-        history_before = get_messages(connection, payload.session_id, user["id"])
-        add_message(connection, payload.session_id, "user", message_text, images=images)
+        history_before = get_messages(connection, payload.session_id, user["id"], include_file_content=True)
+        add_message(connection, payload.session_id, "user", message_text, images=images, files=files)
         inserted_user = connection.execute(
             """
             SELECT id, session_id, role, content, created_at
@@ -2061,8 +2509,10 @@ def api_chat_stream(payload: ChatRequest, user_session: str | None = Cookie(defa
         ).fetchone()
 
         should_autobuild_title = not history_before and (current_session is None or current_session["title"] == "New Chat")
-        title = build_title_for_message(message_text, images) if should_autobuild_title else None
-        request_messages = build_request_messages([*history_before, {"role": "user", "content": message_text, "images": images}])
+        title = build_title_for_message(message_text, images, files) if should_autobuild_title else None
+        request_messages = build_request_messages(
+            [*history_before, {"role": "user", "content": message_text, "images": images, "files": files}]
+        )
         session = get_session(connection, payload.session_id, user["id"])
         retry_limit = max(1, min(get_api_key_count(connection), 50))
 
@@ -2075,7 +2525,17 @@ def api_chat_stream(payload: ChatRequest, user_session: str | None = Cookie(defa
                 "start",
                 {
                     "session": session,
-                    "message": assign_message_images({"role": "user", "content": message_text}, images),
+                    "message": assign_message_files(
+                        assign_message_images({"role": "user", "content": message_text}, images),
+                        [
+                            {
+                                key: value
+                                for key, value in file_payload.items()
+                                if key not in {"data", "parsed_text"}
+                            }
+                            for file_payload in files
+                        ],
+                    ),
                 },
             )
 
@@ -2136,6 +2596,7 @@ def api_chat_stream(payload: ChatRequest, user_session: str | None = Cookie(defa
         except Exception as exc:
             with closing(get_connection()) as rollback_connection:
                 if inserted_user is not None:
+                    delete_message_files_by_ids(rollback_connection, [int(inserted_user["id"])])
                     rollback_connection.execute("DELETE FROM messages WHERE id = ?", (inserted_user["id"],))
                     rollback_connection.commit()
                 if removed_suffix:

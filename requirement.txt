@@ -3,3 +3,5 @@ httpx
 jinja2
 uvicorn
 email-validator
+python-docx
+pypdf

@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
@@ -756,6 +756,52 @@
             background: rgba(248, 250, 252, 0.7);
         }
 
+        .message-file-list,
+        .composer-file-list {
+            display: grid;
+            gap: 12px;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            margin-bottom: 10px;
+        }
+
+        .message-file-card,
+        .composer-file-card {
+            display: grid;
+            gap: 8px;
+            padding: 12px;
+            border-radius: 16px;
+            border: 1px solid var(--line);
+            background: white;
+        }
+
+        .file-badge {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: fit-content;
+            min-width: 52px;
+            padding: 4px 8px;
+            border-radius: 999px;
+            background: rgba(15, 118, 110, 0.12);
+            color: var(--accent-strong);
+            font-size: 12px;
+            font-weight: 700;
+            letter-spacing: 0.04em;
+            text-transform: uppercase;
+        }
+
+        .file-name {
+            font-weight: 600;
+            word-break: break-word;
+        }
+
+        .file-meta {
+            color: var(--muted);
+            font-size: 12px;
+            line-height: 1.5;
+            word-break: break-word;
+        }
+
         @media (max-width: 980px) {
             .shell { grid-template-columns: 1fr; }
             .panel { margin: 0; border-radius: 0; min-height: 70vh; }
@@ -821,17 +867,17 @@
 
                 <form id="chat-form" class="composer">
                     <textarea id="message-input" placeholder="输入你的问题，按 Ctrl+Enter 发送"></textarea>
-                    <input id="image-input" class="hidden" type="file" accept="image/jpeg,image/png,image/webp,image/gif" multiple>
+                    <input id="image-input" class="hidden" type="file" accept="image/jpeg,image/png,image/webp,image/gif,text/plain,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,.txt,.pdf,.docx" multiple>
                     <div id="composer-image-preview" class="composer-image-preview hidden">
                         <div id="composer-image-list" class="composer-image-list"></div>
                         <div class="composer-image-meta">
                             <div id="composer-image-name" class="helper"></div>
-                            <button id="remove-image-btn" class="ghost-btn" type="button">移除图片</button>
+                            <button id="remove-image-btn" class="ghost-btn" type="button">移除附件</button>
                         </div>
                     </div>
                     <div class="composer-row">
                         <div class="composer-tools">
-                            <button id="attach-image-btn" class="secondary-btn" type="button">上传图片</button>
+                            <button id="attach-image-btn" class="secondary-btn" type="button">上传附件</button>
                             <span id="status-text" class="status-text">正在检查登录状态...</span>
                         </div>
                         <button id="send-btn" class="primary-btn" type="submit">发送</button>
@@ -979,6 +1025,7 @@
             sessions: [],
             messages: [],
             selectedImages: [],
+            selectedFiles: [],
             selectedImage: null,
             sending: false,
             currentAssistantMessageId: null,
@@ -1046,7 +1093,18 @@
         const adminDbTablesEl = document.getElementById("admin-db-tables");
         const adminDbRowsEl = document.getElementById("admin-db-rows");
         const SUPPORTED_IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/webp", "image/gif"]);
+        const SUPPORTED_DOCUMENT_TYPES = new Set([
+            "text/plain",
+            "application/pdf",
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        ]);
+        const DOCUMENT_EXTENSION_TYPES = {
+            ".txt": "text/plain",
+            ".pdf": "application/pdf",
+            ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        };
         const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+        const MAX_DOCUMENT_BYTES = 10 * 1024 * 1024;
 
         function uid() {
             return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
@@ -1126,6 +1184,68 @@
                 return [message.image];
             }
             return [];
+        }
+
+        function getMessageFiles(message) {
+            if (!Array.isArray(message?.files)) {
+                return [];
+            }
+            return message.files.filter((file) => file?.name && file?.media_type);
+        }
+
+        function getFileTypeLabel(file) {
+            const mediaType = String(file?.media_type || "").toLowerCase();
+            if (mediaType === "application/pdf") return "PDF";
+            if (mediaType === "text/plain") return "TXT";
+            if (mediaType === "application/vnd.openxmlformats-officedocument.wordprocessingml.document") return "DOCX";
+            return "FILE";
+        }
+
+        function buildMessageFilesHtml(message) {
+            const files = getMessageFiles(message);
+            if (!files.length) {
+                return "";
+            }
+            return `
+                <div class="message-file-list">
+                    ${files.map((file) => `
+                        <div class="message-file-card">
+                            <span class="file-badge">${getFileTypeLabel(file)}</span>
+                            <div class="file-name">${escapeHtml(file.name || "附件")}</div>
+                            <div class="file-meta">已解析后发送给 AI${file.parsed_char_count ? ` · ${file.parsed_char_count} chars` : ""}</div>
+                        </div>
+                    `).join("")}
+                </div>
+            `;
+        }
+
+        function cloneFiles(files) {
+            return getMessageFiles({ files }).map((file) => ({ ...file }));
+        }
+
+        function fileExtension(name) {
+            const normalized = String(name || "").trim().toLowerCase();
+            const dotIndex = normalized.lastIndexOf(".");
+            return dotIndex >= 0 ? normalized.slice(dotIndex) : "";
+        }
+
+        function normalizeDocumentType(file) {
+            const explicitType = String(file?.type || "").trim().toLowerCase();
+            if (SUPPORTED_DOCUMENT_TYPES.has(explicitType)) {
+                return explicitType;
+            }
+            if (!explicitType || explicitType === "application/octet-stream") {
+                return DOCUMENT_EXTENSION_TYPES[fileExtension(file?.name)] || "";
+            }
+            return explicitType;
+        }
+
+        function normalizeFilesForRequest(files) {
+            return (files || []).map((file) => ({
+                name: file.name || null,
+                media_type: file.media_type,
+                data: file.data,
+            }));
         }
 
         function buildMessageImagesHtml(message) {
@@ -1290,7 +1410,7 @@
             messageInputEl.disabled = !loggedIn || state.sending;
             imageInputEl.disabled = !loggedIn || state.sending;
             attachImageBtnEl.disabled = !loggedIn || state.sending;
-            removeImageBtnEl.disabled = !loggedIn || state.sending || !state.selectedImage;
+            removeImageBtnEl.disabled = !loggedIn || state.sending || (!state.selectedImages.length && !state.selectedFiles.length);
             sendBtnEl.disabled = !loggedIn || state.sending;
             modelSelectEl.disabled = !loggedIn || state.sending;
             renameSessionBtnEl.disabled = !loggedIn || !state.sessionId || state.sending;
@@ -1334,16 +1454,18 @@
 
         function renderComposerImage() {
             const images = Array.isArray(state.selectedImages) ? state.selectedImages : [];
+            const files = Array.isArray(state.selectedFiles) ? state.selectedFiles : [];
             state.selectedImage = images[0] || null;
-            composerImagePreviewEl.classList.toggle("hidden", !images.length);
-            removeImageBtnEl.disabled = !images.length || state.sending || !state.auth?.authenticated;
-            if (!images.length) {
+            const hasAttachments = images.length || files.length;
+            composerImagePreviewEl.classList.toggle("hidden", !hasAttachments);
+            removeImageBtnEl.disabled = !hasAttachments || state.sending || !state.auth?.authenticated;
+            if (!hasAttachments) {
                 composerImageListEl.innerHTML = "";
                 composerImageNameEl.textContent = "";
                 return;
             }
 
-            composerImageListEl.innerHTML = images.map((image, index) => {
+            const imageHtml = images.map((image, index) => {
                 const previewSrc = image.preview_url || buildImageDataUrl(image);
                 const imageName = escapeHtml(image.name || `image-${index + 1}`);
                 return `
@@ -1356,7 +1478,19 @@
                     </div>
                 `;
             }).join("");
-            composerImageNameEl.textContent = `${images.length} image${images.length > 1 ? "s" : ""} selected`;
+            const fileHtml = files.map((file, index) => `
+                <div class="composer-file-card">
+                    <span class="file-badge">${getFileTypeLabel(file)}</span>
+                    <div class="file-name">${escapeHtml(file.name || `attachment-${index + 1}`)}</div>
+                    <div class="file-meta">会先解析文本，再把解析结果发给 AI</div>
+                    <button class="ghost-btn composer-image-remove" type="button" data-remove-selected-file="${index}">Remove</button>
+                </div>
+            `).join("");
+            composerImageListEl.innerHTML = `${imageHtml}${fileHtml}`;
+            const summary = [];
+            if (images.length) summary.push(`${images.length} image${images.length > 1 ? "s" : ""}`);
+            if (files.length) summary.push(`${files.length} file${files.length > 1 ? "s" : ""}`);
+            composerImageNameEl.textContent = `${summary.join(" + ")} selected`;
             composerImageListEl.querySelectorAll("[data-remove-selected-image]").forEach((button) => {
                 button.addEventListener("click", () => {
                     const index = Number(button.dataset.removeSelectedImage);
@@ -1370,11 +1504,25 @@
                     renderComposerImage();
                 });
             });
+            composerImageListEl.querySelectorAll("[data-remove-selected-file]").forEach((button) => {
+                button.addEventListener("click", () => {
+                    const index = Number(button.dataset.removeSelectedFile);
+                    if (Number.isNaN(index)) {
+                        return;
+                    }
+                    state.selectedFiles = state.selectedFiles.filter((_, fileIndex) => fileIndex !== index);
+                    if (!state.selectedImages.length && !state.selectedFiles.length) {
+                        imageInputEl.value = "";
+                    }
+                    renderComposerImage();
+                });
+            });
             bindMessageEvents(composerImagePreviewEl);
         }
 
         function clearSelectedImage() {
             state.selectedImages = [];
+            state.selectedFiles = [];
             state.selectedImage = null;
             imageInputEl.value = "";
             renderComposerImage();
@@ -1435,6 +1583,61 @@
             return addedImages;
         }
 
+        async function handleDocumentFile(file) {
+            if (!file) {
+                return null;
+            }
+            const mediaType = normalizeDocumentType(file);
+            if (!SUPPORTED_DOCUMENT_TYPES.has(mediaType)) {
+                throw new Error("仅支持 txt、docx、pdf 文件");
+            }
+            if (file.size > MAX_DOCUMENT_BYTES) {
+                throw new Error("文件不能超过 10 MB");
+            }
+
+            const arrayBuffer = await file.arrayBuffer();
+            const bytes = new Uint8Array(arrayBuffer);
+            let binary = "";
+            const chunkSize = 0x8000;
+            for (let index = 0; index < bytes.length; index += chunkSize) {
+                binary += String.fromCharCode(...bytes.subarray(index, index + chunkSize));
+            }
+
+            const documentFile = {
+                name: file.name,
+                media_type: mediaType,
+                data: btoa(binary),
+                size: file.size,
+            };
+            state.selectedFiles = [...(state.selectedFiles || []), documentFile];
+            renderComposerImage();
+            return documentFile;
+        }
+
+        async function handleAttachmentFiles(files) {
+            const addedImages = [];
+            const addedFiles = [];
+            for (const file of Array.from(files || [])) {
+                if (SUPPORTED_IMAGE_TYPES.has(file.type)) {
+                    const image = await handleImageFile(file);
+                    if (image) {
+                        addedImages.push(image);
+                    }
+                    continue;
+                }
+                const mediaType = normalizeDocumentType(file);
+                if (SUPPORTED_DOCUMENT_TYPES.has(mediaType)) {
+                    const documentFile = await handleDocumentFile(file);
+                    if (documentFile) {
+                        addedFiles.push(documentFile);
+                    }
+                    continue;
+                }
+                throw new Error(`不支持的文件类型：${file.name || "附件"}`);
+            }
+            return { images: addedImages, files: addedFiles };
+        }
+
         function buildMessageHtml(message) {
             const images = getMessageImages(message);
             return `
@@ -1452,14 +1655,16 @@
             `;
         }
 
-        function appendLocalMessage(role, content = "", images = []) {
+        function appendLocalMessage(role, content = "", images = [], files = []) {
             const normalizedImages = Array.isArray(images) ? cloneImages(images) : (images ? [{ ...images }] : []);
+            const normalizedFiles = Array.isArray(files) ? cloneFiles(files) : [];
             const nextMessage = {
                 id: uid(),
                 role,
                 content,
                 images: normalizedImages,
                 image: normalizedImages[0] || null,
+                files: normalizedFiles,
             };
             state.messages = [...state.messages, nextMessage];
             if (!messagesEl.querySelector(".message")) {
@@ -3109,11 +3314,14 @@ async function editAndResendMessage(message) {
                 return;
             }
             try {
-                const addedImages = await handleImageFiles(files);
-                setStatus(`已添加 ${addedImages.length} 张图片`);
+                const added = await handleAttachmentFiles(files);
+                const parts = [];
+                if (added.images.length) parts.push(`图片 ${added.images.length} 张`);
+                if (added.files.length) parts.push(`文件 ${added.files.length} 个`);
+                setStatus(`已添加${parts.join("，")}`);
             } catch (error) {
                 clearSelectedImage();
-                setStatus(error.message || "閫夋嫨鍥剧墖澶辫触");
+                setStatus(error.message || "选择附件失败");
             }
         }, true);
 
@@ -3132,22 +3340,24 @@ async function editAndResendMessage(message) {
                 setStatus(`已粘贴 ${addedImages.length} 张图片`);
             } catch (error) {
                 clearSelectedImage();
-                setStatus(error.message || "绮樿创鍥剧墖澶辫触");
+                setStatus(error.message || "粘贴图片失败");
             }
         }, true);
 
         function buildMessageHtml(message) {
             const images = getMessageImages(message);
+            const files = getMessageFiles(message);
             return `
                 <div class="message ${message.role}" data-message-id="${message.id}">
                     <div class="message-top">
                         <div class="message-role">${message.role === "user" ? "用户" : "AI"}</div>
                         <div class="message-actions">
-                            ${message.role === "user" && !images.length ? `<button class="message-btn" type="button" data-edit-message="${message.id}">编辑后重发</button>` : ""}
+                            ${message.role === "user" && !images.length && !files.length ? `<button class="message-btn" type="button" data-edit-message="${message.id}">编辑后重发</button>` : ""}
                             <button class="message-btn danger" type="button" data-delete-message="${message.id}">从此删除</button>
                         </div>
                     </div>
                     ${buildMessageImagesHtml({ images })}
+                    ${buildMessageFilesHtml({ files })}
                     <div class="message-content ${message.content ? "" : "hidden"}" data-message-content="${message.id}">${message.content ? formatMessageContent(message) : ""}</div>
                 </div>
             `;
@@ -3190,8 +3400,8 @@ async function editAndResendMessage(message) {
         }
 
         async function editAndResendMessage(message) {
-            if (getMessageImages(message).length) {
-                setStatus("图片消息暂不支持编辑后重发");
+            if (getMessageImages(message).length || getMessageFiles(message).length) {
+                setStatus("带附件的消息暂不支持编辑后重发");
                 return;
             }
             const edited = window.prompt("修改后会从这里重新生成后续对话。", message.content);
@@ -3211,18 +3421,20 @@ async function editAndResendMessage(message) {
 
             const previousMessages = state.messages.map((item) => {
                 const images = cloneImages(getMessageImages(item));
+                const files = cloneFiles(getMessageFiles(item));
                 return {
                     ...item,
                     images,
                     image: images[0] || null,
+                    files,
                 };
             });
 
             const optimisticAssistantId = uid();
             state.messages = [
                 ...state.messages.slice(0, targetIndex),
-                { ...message, content: trimmed, images: [], image: null },
-                { id: optimisticAssistantId, role: "assistant", content: "", images: [], image: null },
+                { ...message, content: trimmed, images: [], image: null, files: [] },
+                { id: optimisticAssistantId, role: "assistant", content: "", images: [], image: null, files: [] },
             ];
             state.currentAssistantMessageId = optimisticAssistantId;
             renderMessages();
@@ -3308,8 +3520,10 @@ async function editAndResendMessage(message) {
         async function sendMessage() {
             const message = messageInputEl.value.trim();
             const selectedImages = cloneImages(state.selectedImages || []);
+            const selectedFiles = cloneFiles(state.selectedFiles || []);
             const images = normalizeImagesForRequest(selectedImages);
-            if ((!message && !images.length) || state.sending) return;
+            const files = normalizeFilesForRequest(selectedFiles);
+            if ((!message && !images.length && !files.length) || state.sending) return;
             if (!state.sessionId) {
                 await createSession();
             }
@@ -3317,9 +3531,10 @@ async function editAndResendMessage(message) {
 
             const pendingMessage = message;
             const pendingImages = images;
+            const pendingFiles = files;
             messageInputEl.value = "";
             clearSelectedImage();
-            appendLocalMessage("user", pendingMessage, pendingImages);
+            appendLocalMessage("user", pendingMessage, pendingImages, pendingFiles);
             state.currentAssistantMessageId = appendLocalMessage("assistant", "");
             setSending(true);
 
@@ -3331,6 +3546,7 @@ async function editAndResendMessage(message) {
                         session_id: state.sessionId,
                         message: pendingMessage,
                         images: pendingImages,
+                        files: pendingFiles,
                         model: modelSelectEl.value,
                     }),
                 });
@@ -3391,6 +3607,7 @@ async function editAndResendMessage(message) {
             } catch (error) {
                 state.messages = state.messages.slice(0, -2);
                 state.selectedImages = selectedImages;
+                state.selectedFiles = selectedFiles;
                 state.selectedImage = selectedImages[0] || null;
                 renderComposerImage();
                 renderMessages();
