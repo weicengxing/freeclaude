@@ -58,6 +58,15 @@
             gap: 18px;
         }
 
+        .panel {
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 18px;
+            min-width: 0;
+            min-height: 100vh;
+        }
+
         .key-tools {
             display: flex;
             flex-direction: column;
@@ -244,6 +253,28 @@
             line-height: 1.5;
         }
 
+        .nav-group {
+            display: grid;
+            gap: 8px;
+        }
+
+        .nav-btn {
+            width: 100%;
+            border: 1px solid var(--line);
+            background: #f8fafc;
+            color: var(--text);
+            border-radius: 14px;
+            padding: 12px 14px;
+            text-align: left;
+            font-weight: 600;
+        }
+
+        .nav-btn.active {
+            background: var(--accent);
+            border-color: var(--accent);
+            color: white;
+        }
+
         .toolbar,
         .header-row,
         .session-row,
@@ -348,6 +379,59 @@
             padding: 6px 2px;
         }
 
+        .main-view {
+            display: grid;
+            gap: 18px;
+            min-height: 0;
+            flex: 1;
+        }
+
+        .chat-view {
+            grid-template-rows: auto 1fr auto;
+        }
+
+        .db-view {
+            grid-template-rows: auto 1fr;
+        }
+
+        .page-card {
+            border: 1px solid var(--line);
+            border-radius: 18px;
+            background: rgba(255, 255, 255, 0.9);
+            padding: 18px;
+        }
+
+        .db-page-shell {
+            display: grid;
+            grid-template-columns: 220px minmax(0, 1fr);
+            gap: 16px;
+            min-height: 0;
+            align-items: start;
+        }
+
+        .db-side-panel {
+            display: grid;
+            gap: 10px;
+            align-content: start;
+        }
+
+        .db-main-panel {
+            display: grid;
+            gap: 12px;
+            grid-template-rows: auto minmax(260px, 1fr);
+            align-content: start;
+            min-width: 0;
+            min-height: 0;
+        }
+
+        .db-header-card {
+            padding: 14px 16px;
+        }
+
+        .db-header-card .meta-text {
+            margin-top: 2px;
+        }
+
         .message {
             max-width: 860px;
             padding: 16px;
@@ -380,7 +464,8 @@
         }
 
         .auth-overlay,
-        .admin-overlay {
+        .admin-overlay,
+        .db-modal-overlay {
             position: fixed;
             inset: 0;
             background: rgba(15, 23, 42, 0.42);
@@ -401,6 +486,59 @@
             overflow: auto;
             border-radius: 24px;
             padding: 24px;
+        }
+
+        .db-modal-card {
+            width: min(880px, calc(100vw - 40px));
+            max-height: 84vh;
+            overflow: auto;
+            border-radius: 24px;
+            padding: 22px;
+            background: var(--panel);
+            border: 1px solid rgba(215, 222, 234, 0.92);
+            box-shadow: 0 18px 50px rgba(15, 23, 42, 0.08);
+            backdrop-filter: blur(12px);
+            display: grid;
+            gap: 16px;
+        }
+
+        .db-modal-grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 14px;
+        }
+
+        .db-modal-field {
+            display: grid;
+            gap: 6px;
+        }
+
+        .db-modal-field label {
+            font-size: 12px;
+            color: var(--muted);
+        }
+
+        .db-modal-field input,
+        .db-modal-field textarea {
+            background: white;
+        }
+
+        .db-modal-field input[readonly],
+        .db-modal-field textarea[readonly] {
+            background: #f8fafc;
+            color: var(--muted);
+            cursor: not-allowed;
+        }
+
+        .db-modal-field textarea {
+            min-height: 88px;
+        }
+
+        .db-modal-actions {
+            display: flex;
+            justify-content: flex-end;
+            gap: 10px;
+            flex-wrap: wrap;
         }
 
         .tab-row {
@@ -449,11 +587,186 @@
             line-height: 1.6;
         }
 
+        .admin-tabs {
+            display: flex;
+            gap: 10px;
+            margin: 16px 0;
+        }
+
+        .admin-tab-btn {
+            border-radius: 12px;
+            border: 1px solid var(--line);
+            background: #f8fafc;
+            padding: 10px 14px;
+            cursor: pointer;
+        }
+
+        .admin-tab-btn.active {
+            background: var(--accent);
+            color: white;
+            border-color: var(--accent);
+        }
+
+        .admin-panel {
+            display: grid;
+            gap: 14px;
+        }
+
+        .admin-db-toolbar {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) auto;
+            gap: 10px;
+            align-items: center;
+            padding: 10px 12px;
+            align-self: start;
+        }
+
+        .admin-db-filters {
+            display: grid;
+            grid-template-columns: minmax(260px, 440px) auto auto;
+            gap: 10px;
+            align-items: center;
+        }
+
+        .admin-db-actions {
+            display: flex;
+            gap: 10px;
+            justify-content: flex-end;
+            flex-wrap: wrap;
+        }
+
+        .compact-card {
+            padding: 12px 14px;
+        }
+
+        .admin-db-toolbar-meta {
+            grid-column: 1 / -1;
+            min-height: 18px;
+            font-size: 12px;
+            color: var(--muted);
+        }
+
+        .admin-db-layout {
+            display: grid;
+            grid-template-columns: 220px 1fr;
+            gap: 16px;
+            min-height: 420px;
+        }
+
+        .admin-db-tables {
+            border: 1px solid var(--line);
+            border-radius: 16px;
+            background: #f8fafc;
+            padding: 8px;
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            overflow: auto;
+            max-height: 68vh;
+        }
+
+        .admin-db-table-btn {
+            border: 1px solid var(--line);
+            background: white;
+            border-radius: 10px;
+            padding: 9px 10px;
+            text-align: left;
+            cursor: pointer;
+        }
+
+        .admin-db-table-btn.active {
+            border-color: #14b8a6;
+            background: #ecfeff;
+        }
+
+        .admin-db-content {
+            display: grid;
+            gap: 14px;
+            min-width: 0;
+        }
+
+        .admin-db-rows {
+            display: grid;
+            gap: 10px;
+            min-height: 320px;
+        }
+
+        .admin-db-table-wrap {
+            border: 1px solid var(--line);
+            border-radius: 16px;
+            background: white;
+            overflow: auto;
+            min-height: 320px;
+        }
+
+        .admin-db-table-grid {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 13px;
+        }
+
+        .admin-db-table-grid th,
+        .admin-db-table-grid td {
+            border-bottom: 1px solid #e5e7eb;
+            padding: 10px 12px;
+            text-align: left;
+            vertical-align: top;
+            white-space: nowrap;
+            max-width: 220px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .admin-db-table-grid thead th {
+            position: sticky;
+            top: 0;
+            background: #f8fafc;
+            z-index: 1;
+        }
+
+        .admin-db-table-grid tr.active {
+            background: #ecfeff;
+        }
+
+        .admin-db-table-grid td.actions {
+            white-space: nowrap;
+        }
+
+        .table-action-btn {
+            border: none;
+            border-radius: 8px;
+            padding: 6px 10px;
+            color: white;
+            font-size: 12px;
+            margin-right: 6px;
+        }
+
+        .table-action-btn.view { background: #3b82f6; }
+        .table-action-btn.edit { background: #f59e0b; }
+        .table-action-btn.delete { background: #ef4444; }
+
+        .empty-state {
+            min-height: 220px;
+            display: grid;
+            place-items: center;
+            color: var(--muted);
+            font-size: 13px;
+            border: 1px dashed var(--line);
+            border-radius: 16px;
+            background: rgba(248, 250, 252, 0.7);
+        }
+
         @media (max-width: 980px) {
             .shell { grid-template-columns: 1fr; }
             .panel { margin: 0; border-radius: 0; min-height: 70vh; }
             .sidebar { border-radius: 0; }
             .admin-user-card { grid-template-columns: 1fr; }
+            .admin-db-layout { grid-template-columns: 1fr; }
+            .db-page-shell { grid-template-columns: 1fr; }
+            .admin-db-toolbar { grid-template-columns: 1fr; }
+            .admin-db-filters { grid-template-columns: 1fr; }
+            .admin-db-actions { justify-content: flex-start; }
+            .db-modal-grid { grid-template-columns: 1fr; }
         }
     </style>
     <link rel="stylesheet" href="/static/app.css?v=20260417">
@@ -479,47 +792,90 @@
                 <div id="auth-meta" class="meta-text">请先登录后再开始聊天。</div>
             </div>
 
+            <div class="nav-group">
+                <button id="chat-view-btn" class="nav-btn active" type="button">聊天中心</button>
+                <button id="db-view-btn" class="nav-btn hidden" type="button">数据库管理</button>
+            </div>
             <div class="toolbar">
                 <button id="rename-session-btn" class="secondary-btn" type="button" disabled>重命名</button>
                 <button id="delete-session-btn" class="danger-btn" type="button" disabled>删除会话</button>
             </div>
             <div id="session-list" class="session-list"></div>
         </aside>
-
         <main class="panel workspace-panel">
-            <header class="header-row workspace-header">
-                <div>
-                    <div id="chat-title" class="session-title">新对话</div>
-                    <div id="chat-subtitle" class="meta-text">登录后历史会话会保存在 SQLite 中。</div>
-                </div>
-                <div class="auth-actions">
-                    <button id="import-keys-btn" class="secondary-btn hidden" type="button">导入</button>
-                    <button id="admin-btn" class="secondary-btn hidden" type="button">用户管理</button>
-                    <button id="show-auth-btn" class="secondary-btn hidden" type="button">登录 / 注册</button>
-                    <button id="logout-btn" class="secondary-btn hidden" type="button">退出登录</button>
-                </div>
-            </header>
-
-            <section id="messages" class="messages"></section>
-
-            <form id="chat-form" class="composer">
-                <textarea id="message-input" placeholder="输入你的问题，按 Ctrl+Enter 发送"></textarea>
-                <input id="image-input" class="hidden" type="file" accept="image/jpeg,image/png,image/webp,image/gif" multiple>
-                <div id="composer-image-preview" class="composer-image-preview hidden">
-                    <div id="composer-image-list" class="composer-image-list"></div>
-                    <div class="composer-image-meta">
-                        <div id="composer-image-name" class="helper"></div>
-                        <button id="remove-image-btn" class="ghost-btn" type="button">移除图片</button>
+            <section id="chat-view" class="main-view chat-view">
+                <header class="header-row workspace-header">
+                    <div>
+                        <div id="chat-title" class="session-title">新对话</div>
+                        <div id="chat-subtitle" class="meta-text">登录后历史会话会保存在 SQLite 中。</div>
                     </div>
-                </div>
-                <div class="composer-row">
-                    <div class="composer-tools">
-                        <button id="attach-image-btn" class="secondary-btn" type="button">上传图片</button>
-                        <span id="status-text" class="status-text">正在检查登录状态...</span>
+                    <div class="auth-actions">
+                        <button id="import-keys-btn" class="secondary-btn hidden" type="button">导入</button>
+                        <button id="admin-btn" class="secondary-btn hidden" type="button">用户管理</button>
+                        <button id="show-auth-btn" class="secondary-btn hidden" type="button">登录 / 注册</button>
+                        <button id="logout-btn" class="secondary-btn hidden" type="button">退出登录</button>
                     </div>
-                    <button id="send-btn" class="primary-btn" type="submit">发送</button>
+                </header>
+
+                <section id="messages" class="messages"></section>
+
+                <form id="chat-form" class="composer">
+                    <textarea id="message-input" placeholder="输入你的问题，按 Ctrl+Enter 发送"></textarea>
+                    <input id="image-input" class="hidden" type="file" accept="image/jpeg,image/png,image/webp,image/gif" multiple>
+                    <div id="composer-image-preview" class="composer-image-preview hidden">
+                        <div id="composer-image-list" class="composer-image-list"></div>
+                        <div class="composer-image-meta">
+                            <div id="composer-image-name" class="helper"></div>
+                            <button id="remove-image-btn" class="ghost-btn" type="button">移除图片</button>
+                        </div>
+                    </div>
+                    <div class="composer-row">
+                        <div class="composer-tools">
+                            <button id="attach-image-btn" class="secondary-btn" type="button">上传图片</button>
+                            <span id="status-text" class="status-text">正在检查登录状态...</span>
+                        </div>
+                        <button id="send-btn" class="primary-btn" type="submit">发送</button>
+                    </div>
+                </form>
+            </section>
+
+            <section id="db-view" class="main-view db-view hidden">
+                <header class="header-row page-card db-header-card">
+                    <div>
+                        <div class="session-title">数据库管理</div>
+                        <div class="meta-text">SuperAdmin 可以像后台表格一样切换数据表、查看记录并直接编辑。</div>
+                    </div>
+                    <div class="auth-actions">
+                        <button id="db-refresh-btn" class="secondary-btn" type="button">刷新表结构</button>
+                        <button id="db-back-chat-btn" class="ghost-btn" type="button">返回聊天</button>
+                    </div>
+                </header>
+
+                <div class="db-page-shell">
+                    <aside class="db-side-panel page-card">
+                        <div class="session-title">数据表</div>
+                        <div id="admin-db-tables" class="admin-db-tables"></div>
+                    </aside>
+
+                    <section class="db-main-panel">
+                        <div class="admin-db-toolbar page-card compact-card">
+                            <div class="admin-db-filters">
+                                <input id="db-search-input" type="text" placeholder="输入关键字即可筛选当前表数据">
+                                <button id="db-search-btn" class="primary-btn" type="button">查询</button>
+                                <button id="db-clear-search-btn" class="ghost-btn" type="button">重置</button>
+                            </div>
+                            <div class="admin-db-actions">
+                                <button id="refresh-db-btn" class="secondary-btn" type="button">刷新表</button>
+                                <button id="insert-db-row-btn" class="secondary-btn" type="button">新增记录</button>
+                                <button id="refresh-db-rows-btn" class="secondary-btn" type="button">刷新数据</button>
+                            </div>
+                            <div id="admin-status" class="admin-db-toolbar-meta"></div>
+                        </div>
+
+                        <div id="admin-db-rows" class="admin-db-rows page-card"></div>
+                    </section>
                 </div>
-            </form>
+            </section>
         </main>
     </div>
 
@@ -589,14 +945,36 @@
                     <button id="close-admin-btn" class="ghost-btn" type="button">关闭</button>
                 </div>
             </div>
-            <div id="admin-status" class="helper"></div>
-            <div id="admin-user-list" class="admin-list"></div>
+            <div id="admin-status-overlay" class="helper"></div>
+
+            <div id="admin-users-panel" class="admin-panel">
+                <div id="admin-user-list" class="admin-list"></div>
+            </div>
+        </div>
+    </div>
+
+    <div id="db-modal-overlay" class="db-modal-overlay hidden">
+        <div class="db-modal-card">
+            <div class="header-row">
+                <div>
+                    <div id="db-modal-title" class="session-title">记录详情</div>
+                    <div id="db-modal-subtitle" class="helper">按字段填写后保存。</div>
+                </div>
+                <button id="close-db-modal-btn" class="ghost-btn" type="button">关闭</button>
+            </div>
+            <div id="db-modal-status" class="helper"></div>
+            <div id="db-modal-grid" class="db-modal-grid"></div>
+            <div class="db-modal-actions">
+                <button id="cancel-db-modal-btn" class="ghost-btn" type="button">取消</button>
+                <button id="save-db-modal-btn" class="primary-btn" type="button">保存</button>
+            </div>
         </div>
     </div>
 
     <script>
         const state = {
             auth: null,
+            currentView: "chat",
             sessionId: null,
             sessions: [],
             messages: [],
@@ -606,6 +984,13 @@
             currentAssistantMessageId: null,
             importingKeys: false,
             keyCount: 0,
+            adminTables: [],
+            adminDbQuery: "",
+            selectedAdminTable: "",
+            selectedAdminTableInfo: null,
+            selectedAdminRow: null,
+            dbModalMode: "view",
+            dbModalRow: null,
         };
 
         const sessionListEl = document.getElementById("session-list");
@@ -631,6 +1016,23 @@
         const keyToolsEl = document.getElementById("key-tools");
         const authOverlayEl = document.getElementById("auth-overlay");
         const adminOverlayEl = document.getElementById("admin-overlay");
+        const chatViewEl = document.getElementById("chat-view");
+        const dbViewEl = document.getElementById("db-view");
+        const chatViewBtnEl = document.getElementById("chat-view-btn");
+        const dbViewBtnEl = document.getElementById("db-view-btn");
+        const dbRefreshBtnEl = document.getElementById("db-refresh-btn");
+        const dbBackChatBtnEl = document.getElementById("db-back-chat-btn");
+        const dbSearchInputEl = document.getElementById("db-search-input");
+        const dbSearchBtnEl = document.getElementById("db-search-btn");
+        const dbClearSearchBtnEl = document.getElementById("db-clear-search-btn");
+        const dbModalOverlayEl = document.getElementById("db-modal-overlay");
+        const dbModalTitleEl = document.getElementById("db-modal-title");
+        const dbModalSubtitleEl = document.getElementById("db-modal-subtitle");
+        const dbModalStatusEl = document.getElementById("db-modal-status");
+        const dbModalGridEl = document.getElementById("db-modal-grid");
+        const closeDbModalBtnEl = document.getElementById("close-db-modal-btn");
+        const cancelDbModalBtnEl = document.getElementById("cancel-db-modal-btn");
+        const saveDbModalBtnEl = document.getElementById("save-db-modal-btn");
         const authUserEl = document.getElementById("auth-user");
         const authMetaEl = document.getElementById("auth-meta");
         const showAuthBtnEl = document.getElementById("show-auth-btn");
@@ -638,7 +1040,11 @@
         const adminBtnEl = document.getElementById("admin-btn");
         const authStatusEl = document.getElementById("auth-status");
         const adminStatusEl = document.getElementById("admin-status");
+        const adminStatusOverlayEl = document.getElementById("admin-status-overlay");
         const adminUserListEl = document.getElementById("admin-user-list");
+        const adminUsersPanelEl = document.getElementById("admin-users-panel");
+        const adminDbTablesEl = document.getElementById("admin-db-tables");
+        const adminDbRowsEl = document.getElementById("admin-db-rows");
         const SUPPORTED_IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/webp", "image/gif"]);
         const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 
@@ -651,11 +1057,13 @@
         }
 
         function renderKeyMeta(sourceUrl = null) {
-            if (!keyMetaEl || !importKeysBtnEl) {
+            if (!importKeysBtnEl) {
                 return;
             }
-            const sourceText = sourceUrl || "GitHub";
-            keyMetaEl.textContent = `Key ${state.keyCount} · ${sourceText}`;
+            if (keyMetaEl) {
+                const sourceText = sourceUrl || "GitHub";
+                keyMetaEl.textContent = `Key ${state.keyCount} · ${sourceText}`;
+            }
             importKeysBtnEl.disabled = !state.auth?.is_admin || state.sending || state.importingKeys;
             importKeysBtnEl.textContent = state.importingKeys ? "导入中..." : "导入";
         }
@@ -668,6 +1076,26 @@
         function setAdminStatus(text, isError = false) {
             adminStatusEl.textContent = text || "";
             adminStatusEl.style.color = isError ? "#dc2626" : "#667085";
+            if (adminStatusOverlayEl) {
+                adminStatusOverlayEl.textContent = text || "";
+                adminStatusOverlayEl.style.color = isError ? "#dc2626" : "#667085";
+            }
+        }
+
+        async function switchMainView(view) {
+            const isDbView = view === "db";
+            if (isDbView && !state.auth?.is_admin) {
+                setStatus("只有 SuperAdmin 可以进入数据库管理");
+                return;
+            }
+            state.currentView = isDbView ? "db" : "chat";
+            chatViewEl.classList.toggle("hidden", isDbView);
+            dbViewEl.classList.toggle("hidden", !isDbView);
+            chatViewBtnEl.classList.toggle("active", !isDbView);
+            dbViewBtnEl.classList.toggle("active", isDbView);
+            if (isDbView && !state.adminTables.length) {
+                await refreshAdminTables();
+            }
         }
 
         function escapeHtml(text) {
@@ -855,6 +1283,7 @@
             logoutBtnEl.classList.toggle("hidden", !loggedIn);
             showAuthBtnEl.classList.toggle("hidden", loggedIn);
             adminBtnEl.classList.toggle("hidden", !auth?.is_admin);
+            dbViewBtnEl.classList.toggle("hidden", !auth?.is_admin);
             if (keyToolsEl) {
                 keyToolsEl.classList.toggle("hidden", !auth?.is_admin);
             }
@@ -868,7 +1297,12 @@
             deleteSessionBtnEl.disabled = !loggedIn || !state.sessionId || state.sending;
             renderKeyMeta();
 
+            if (!auth?.is_admin && state.currentView === "db") {
+                void switchMainView("chat");
+            }
+
             if (!loggedIn) {
+                state.currentView = "chat";
                 state.sessionId = null;
                 state.sessions = [];
                 state.messages = [];
@@ -881,6 +1315,10 @@
                 setStatus("请先登录");
                 authOverlayEl.classList.remove("hidden");
                 adminOverlayEl.classList.add("hidden");
+                chatViewEl.classList.remove("hidden");
+                dbViewEl.classList.add("hidden");
+                chatViewBtnEl.classList.add("active");
+                dbViewBtnEl.classList.remove("active");
             }
         }
 
@@ -1449,6 +1887,383 @@ function renderMessages() {
             }
         }
 
+        function renderAdminTableOptions() {
+            if (!state.adminTables.length) {
+                adminDbTablesEl.innerHTML = `<div class="helper">没有可管理的数据表</div>`;
+                return;
+            }
+
+            adminDbTablesEl.innerHTML = state.adminTables.map((table) => `
+                <button
+                    class="admin-db-table-btn ${table.name === state.selectedAdminTable ? "active" : ""}"
+                    type="button"
+                    data-admin-table="${table.name}"
+                >
+                    <div>${table.name}</div>
+                    <div class="helper">${table.count} 行</div>
+                </button>
+            `).join("");
+
+            adminDbTablesEl.querySelectorAll("[data-admin-table]").forEach((button) => {
+                button.addEventListener("click", async () => {
+                    await loadAdminTable(button.dataset.adminTable);
+                });
+            });
+
+        }
+
+        function getPrimaryKeyPayload(tableInfo, row) {
+            const pk = {};
+            for (const key of tableInfo.primary_keys || []) {
+                pk[key] = row[key];
+            }
+            return pk;
+        }
+
+        function getFilteredAdminRows(tableInfo) {
+            const rows = tableInfo?.rows || [];
+            const keyword = (state.adminDbQuery || "").trim().toLowerCase();
+            if (!keyword) {
+                return rows;
+            }
+            return rows.filter((row) =>
+                Object.values(row).some((value) => String(value ?? "").toLowerCase().includes(keyword))
+            );
+        }
+
+        function buildRowPromptText(tableInfo, row = {}) {
+            const primaryKeys = new Set(tableInfo?.primary_keys || []);
+            return (tableInfo?.columns || []).map((column) => {
+                const value = row[column.name] ?? "";
+                const suffix = primaryKeys.has(column.name) ? " [PK]" : "";
+                return `${column.name}${suffix}=${value}`;
+            }).join("\n");
+        }
+
+        function parseRowPromptText(text) {
+            const values = {};
+            for (const line of String(text || "").split("\n")) {
+                const trimmed = line.trim();
+                if (!trimmed) {
+                    continue;
+                }
+                const separatorIndex = trimmed.indexOf("=");
+                if (separatorIndex < 0) {
+                    continue;
+                }
+                const rawKey = trimmed.slice(0, separatorIndex).trim();
+                const key = rawKey.replace(/\s*\[PK\]$/, "").trim();
+                const rawValue = trimmed.slice(separatorIndex + 1);
+                values[key] = rawValue === "" ? null : rawValue;
+            }
+            return values;
+        }
+
+        function setDbModalStatus(text, isError = false) {
+            dbModalStatusEl.textContent = text || "";
+            dbModalStatusEl.style.color = isError ? "#dc2626" : "#667085";
+        }
+
+        function closeDbModal() {
+            dbModalOverlayEl.classList.add("hidden");
+            dbModalGridEl.innerHTML = "";
+            state.dbModalMode = "view";
+            state.dbModalRow = null;
+            setDbModalStatus("");
+        }
+
+        function openDbModal(mode, row = null) {
+            const tableInfo = state.selectedAdminTableInfo;
+            if (!tableInfo) {
+                return;
+            }
+            state.dbModalMode = mode;
+            state.dbModalRow = row;
+
+            const isView = mode === "view";
+            const isCreate = mode === "create";
+            dbModalTitleEl.textContent = isCreate ? "新增记录" : isView ? "查看记录" : "编辑记录";
+            dbModalSubtitleEl.textContent = isCreate
+                ? `向 ${state.selectedAdminTable} 表新增一条记录`
+                : isView
+                    ? `查看 ${state.selectedAdminTable} 表中的记录详情`
+                    : `修改 ${state.selectedAdminTable} 表中的记录`;
+            saveDbModalBtnEl.classList.toggle("hidden", isView);
+            cancelDbModalBtnEl.textContent = isView ? "关闭" : "取消";
+            setDbModalStatus("");
+
+            const primaryKeys = new Set(tableInfo.primary_keys || []);
+            const values = row || {};
+            dbModalGridEl.innerHTML = (tableInfo.columns || []).map((column) => {
+                const isPrimaryKey = primaryKeys.has(column.name);
+                const isAutoPrimaryKey = isCreate && isPrimaryKey && /int/i.test(String(column.type || "")) && String(column.name || "").toLowerCase() === "id";
+                if (isAutoPrimaryKey) {
+                    return "";
+                }
+                const value = values[column.name] ?? "";
+                const escapedValue = escapeHtml(String(value));
+                const useTextarea = String(value).length > 80 || String(value).includes("\n");
+                const readonly = isView || (!isCreate && isPrimaryKey);
+                return `
+                    <div class="db-modal-field">
+                        <label>${column.name}${isPrimaryKey ? " [PK]" : ""}</label>
+                        ${useTextarea
+                            ? `<textarea data-db-modal-field="${column.name}" ${readonly ? "readonly" : ""}>${escapedValue}</textarea>`
+                            : `<input data-db-modal-field="${column.name}" value="${escapedValue}" ${readonly ? "readonly" : ""}>`
+                        }
+                    </div>
+                `;
+            }).join("");
+
+            dbModalOverlayEl.classList.remove("hidden");
+        }
+
+        function collectDbModalValues() {
+            const values = {};
+            dbModalGridEl.querySelectorAll("[data-db-modal-field]").forEach((fieldEl) => {
+                const key = fieldEl.dataset.dbModalField;
+                const rawValue = fieldEl.value;
+                values[key] = rawValue === "" ? null : rawValue;
+            });
+            return values;
+        }
+
+        async function saveDbModal() {
+            const tableInfo = state.selectedAdminTableInfo;
+            if (!tableInfo) {
+                return;
+            }
+            try {
+                const values = collectDbModalValues();
+                if (state.dbModalMode === "create") {
+                    await fetchJson(`/api/admin/db/tables/${encodeURIComponent(state.selectedAdminTable)}/rows`, {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ values }),
+                    });
+                    await loadAdminTable(state.selectedAdminTable);
+                    closeDbModal();
+                    setAdminStatus("新增成功");
+                    return;
+                }
+
+                const currentRow = state.dbModalRow;
+                if (!currentRow) {
+                    setDbModalStatus("缺少待编辑记录", true);
+                    return;
+                }
+                const pk = getPrimaryKeyPayload(tableInfo, currentRow);
+                const updates = {};
+                for (const [key, value] of Object.entries(values)) {
+                    if (!(tableInfo.primary_keys || []).includes(key) && JSON.stringify(value) !== JSON.stringify(currentRow[key] ?? null)) {
+                        updates[key] = value;
+                    }
+                }
+                if (!Object.keys(updates).length) {
+                    setDbModalStatus("没有检测到变更");
+                    return;
+                }
+                await fetchJson(`/api/admin/db/tables/${encodeURIComponent(state.selectedAdminTable)}/rows`, {
+                    method: "PATCH",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ pk, updates }),
+                });
+                await loadAdminTable(state.selectedAdminTable);
+                closeDbModal();
+                setAdminStatus("更新成功");
+            } catch (error) {
+                setDbModalStatus(error.message || "保存失败", true);
+            }
+        }
+
+        function renderAdminTableRows(tableInfo) {
+            if (!tableInfo) {
+                adminDbRowsEl.innerHTML = "";
+                return;
+            }
+
+            const filteredRows = getFilteredAdminRows(tableInfo);
+
+            if (!(tableInfo.rows || []).length) {
+                adminDbRowsEl.innerHTML = `<div class="empty-state">这个表目前没有数据。</div>`;
+                return;
+            }
+
+            if (!filteredRows.length) {
+                adminDbRowsEl.innerHTML = `<div class="empty-state">当前筛选条件下没有匹配数据。</div>`;
+                return;
+            }
+
+            const columns = tableInfo.columns || [];
+            adminDbRowsEl.innerHTML = `
+                <div class="admin-db-table-wrap">
+                    <table class="admin-db-table-grid">
+                        <thead>
+                            <tr>
+                                <th>NO.</th>
+                                ${columns.map((column) => `<th>${escapeHtml(column.name)}</th>`).join("")}
+                                <th>操作</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${filteredRows.map((row, index) => `
+                                <tr
+                                    class="${JSON.stringify(row) === JSON.stringify(state.selectedAdminRow) ? "active" : ""}"
+                                    data-db-row-index="${index}"
+                                >
+                                    <td>${index + 1}</td>
+                                    ${columns.map((column) => `<td title="${escapeHtml(String(row[column.name] ?? ""))}">${escapeHtml(String(row[column.name] ?? ""))}</td>`).join("")}
+                                    <td class="actions">
+                                        <button class="table-action-btn view" type="button" data-db-view="${index}">查看</button>
+                                        <button class="table-action-btn edit" type="button" data-db-edit="${index}">编辑</button>
+                                        <button class="table-action-btn delete" type="button" data-db-delete="${index}">删除</button>
+                                    </td>
+                                </tr>
+                            `).join("")}
+                        </tbody>
+                    </table>
+                </div>
+            `;
+
+            adminDbRowsEl.querySelectorAll("[data-db-row-index]").forEach((rowEl) => {
+                rowEl.addEventListener("click", () => {
+                    state.selectedAdminRow = filteredRows[Number(rowEl.dataset.dbRowIndex)];
+                    renderAdminTableRows(tableInfo);
+                });
+            });
+
+            adminDbRowsEl.querySelectorAll("[data-db-view]").forEach((button) => {
+                button.addEventListener("click", (event) => {
+                    event.stopPropagation();
+                    const row = filteredRows[Number(button.dataset.dbView)];
+                    openDbModal("view", row);
+                });
+            });
+
+            adminDbRowsEl.querySelectorAll("[data-db-edit]").forEach((button) => {
+                button.addEventListener("click", async (event) => {
+                    event.stopPropagation();
+                    const row = filteredRows[Number(button.dataset.dbEdit)];
+                    await editDbRow(row);
+                });
+            });
+
+            adminDbRowsEl.querySelectorAll("[data-db-delete]").forEach((button) => {
+                button.addEventListener("click", async (event) => {
+                    event.stopPropagation();
+                    const row = filteredRows[Number(button.dataset.dbDelete)];
+                    await deleteDbRow(row);
+                });
+            });
+
+            if (state.selectedAdminRow) {
+                const stillExists = filteredRows.some((row) => JSON.stringify(row) === JSON.stringify(state.selectedAdminRow));
+                if (!stillExists) {
+                    state.selectedAdminRow = null;
+                }
+            }
+        }
+
+        async function refreshAdminTables() {
+            if (!state.auth?.is_admin) {
+                return;
+            }
+            setAdminStatus("正在加载数据库表...");
+            try {
+                const data = await fetchJson("/api/admin/db/tables");
+                state.adminTables = data.tables || [];
+                if (state.selectedAdminTable && !state.adminTables.some((table) => table.name === state.selectedAdminTable)) {
+                    state.selectedAdminTable = "";
+                    state.selectedAdminTableInfo = null;
+                    state.selectedAdminRow = null;
+                }
+                if (!state.selectedAdminTable && state.adminTables.length) {
+                    state.selectedAdminTable = state.adminTables[0].name;
+                }
+                renderAdminTableOptions();
+                if (state.selectedAdminTable) {
+                    await loadAdminTable(state.selectedAdminTable);
+                } else {
+                    renderAdminTableRows(null);
+                    setAdminStatus("没有可管理的数据表");
+                }
+            } catch (error) {
+                setAdminStatus(error.message || "加载数据库表失败", true);
+            }
+        }
+
+        async function loadAdminTable(tableName) {
+            if (!tableName) {
+                state.selectedAdminTable = "";
+                state.selectedAdminTableInfo = null;
+                renderAdminTableRows(null);
+                return;
+            }
+            state.selectedAdminTable = tableName;
+            dbSearchInputEl.value = state.adminDbQuery;
+            renderAdminTableOptions();
+            try {
+                const data = await fetchJson(`/api/admin/db/tables/${encodeURIComponent(tableName)}?limit=50&offset=0`);
+                state.selectedAdminTableInfo = data;
+                state.selectedAdminRow = null;
+                renderAdminTableRows(data);
+                setAdminStatus(`已加载数据表 ${tableName}`);
+            } catch (error) {
+                setAdminStatus(error.message || "加载表数据失败", true);
+            }
+        }
+
+        async function insertDbRow() {
+            if (!state.selectedAdminTable) {
+                setAdminStatus("请先选择一个数据表", true);
+                return;
+            }
+            try {
+                openDbModal("create");
+            } catch (error) {
+                setAdminStatus(error.message || "新增行失败", true);
+            }
+        }
+
+        async function editDbRow(row) {
+            const tableInfo = state.selectedAdminTableInfo;
+            if (!tableInfo) {
+                return;
+            }
+            try {
+                openDbModal("edit", row);
+            } catch (error) {
+                setAdminStatus(error.message || "更新失败", true);
+            }
+        }
+
+        function applyDbSearch() {
+            state.adminDbQuery = dbSearchInputEl.value.trim();
+            renderAdminTableRows(state.selectedAdminTableInfo);
+        }
+
+        async function deleteDbRow(row) {
+            const tableInfo = state.selectedAdminTableInfo;
+            if (!tableInfo) {
+                return;
+            }
+            if (!window.confirm(`确定删除 ${state.selectedAdminTable} 表中的这条记录吗？`)) {
+                return;
+            }
+            try {
+                const pk = getPrimaryKeyPayload(tableInfo, row);
+                await fetchJson(`/api/admin/db/tables/${encodeURIComponent(state.selectedAdminTable)}/rows`, {
+                    method: "DELETE",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ pk }),
+                });
+                state.selectedAdminRow = null;
+                await loadAdminTable(state.selectedAdminTable);
+            } catch (error) {
+                setAdminStatus(error.message || "删除行失败", true);
+            }
+        }
+
         async function createSession() {
             if (!state.auth?.authenticated) {
                 authOverlayEl.classList.remove("hidden");
@@ -2000,6 +2815,14 @@ async function editAndResendMessage(message) {
             button.addEventListener("click", () => switchAuthTab(button.dataset.tab));
         });
 
+        chatViewBtnEl.addEventListener("click", async () => {
+            await switchMainView("chat");
+        });
+
+        dbViewBtnEl.addEventListener("click", async () => {
+            await switchMainView("db");
+        });
+
         showAuthBtnEl.addEventListener("click", () => {
             authOverlayEl.classList.remove("hidden");
         });
@@ -2044,6 +2867,61 @@ async function editAndResendMessage(message) {
 
         document.getElementById("refresh-admin-btn").addEventListener("click", async () => {
             await refreshAdminUsers();
+        });
+
+        dbRefreshBtnEl.addEventListener("click", async () => {
+            await refreshAdminTables();
+        });
+
+        dbBackChatBtnEl.addEventListener("click", async () => {
+            await switchMainView("chat");
+        });
+
+        dbSearchBtnEl.addEventListener("click", () => {
+            applyDbSearch();
+        });
+
+        dbClearSearchBtnEl.addEventListener("click", () => {
+            dbSearchInputEl.value = "";
+            state.adminDbQuery = "";
+            renderAdminTableRows(state.selectedAdminTableInfo);
+        });
+
+        closeDbModalBtnEl.addEventListener("click", () => {
+            closeDbModal();
+        });
+
+        cancelDbModalBtnEl.addEventListener("click", () => {
+            closeDbModal();
+        });
+
+        saveDbModalBtnEl.addEventListener("click", async () => {
+            await saveDbModal();
+        });
+
+        dbModalOverlayEl.addEventListener("click", (event) => {
+            if (event.target === dbModalOverlayEl) {
+                closeDbModal();
+            }
+        });
+
+        dbSearchInputEl.addEventListener("keydown", (event) => {
+            if (event.key === "Enter") {
+                event.preventDefault();
+                applyDbSearch();
+            }
+        });
+
+        document.getElementById("refresh-db-btn").addEventListener("click", async () => {
+            await refreshAdminTables();
+        });
+
+        document.getElementById("refresh-db-rows-btn").addEventListener("click", async () => {
+            await loadAdminTable(state.selectedAdminTable);
+        });
+
+        document.getElementById("insert-db-row-btn").addEventListener("click", async () => {
+            await insertDbRow();
         });
 
         document.getElementById("new-chat-btn").addEventListener("click", async () => {

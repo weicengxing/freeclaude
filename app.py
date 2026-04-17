@@ -1,5 +1,6 @@
 import base64
 import binascii
+import asyncio
 import hashlib
 import json
 import logging
@@ -66,6 +67,9 @@ def get_env_int(name: str, default: int, minimum: int = 1) -> int:
 
 
 USER_KEY_BATCH_SIZE = get_env_int("USER_KEY_BATCH_SIZE", DEFAULT_USER_KEY_BATCH_SIZE)
+MESSAGE_RETENTION_DAYS = get_env_int("MESSAGE_RETENTION_DAYS", 14)
+MESSAGE_CLEANUP_INTERVAL_DAYS = get_env_int("MESSAGE_CLEANUP_INTERVAL_DAYS", 14)
+MESSAGE_CLEANUP_INTERVAL_SECONDS = MESSAGE_CLEANUP_INTERVAL_DAYS * 60 * 60 * 24
 
 app = FastAPI(title="UUAPI Web Chat")
 app.mount("/static", StaticFiles(directory=str(BASE_DIR / "static")), name="static")
@@ -130,6 +134,19 @@ class ResetPasswordRequest(BaseModel):
 
 class UpdateUserStatusRequest(BaseModel):
     is_active: bool
+
+
+class DatabaseRowUpdateRequest(BaseModel):
+    pk: dict[str, object]
+    updates: dict[str, object]
+
+
+class DatabaseRowInsertRequest(BaseModel):
+    values: dict[str, object]
+
+
+class DatabaseRowDeleteRequest(BaseModel):
+    pk: dict[str, object]
 
 
 def utc_now() -> str:
@@ -713,6 +730,41 @@ def list_sessions(connection: sqlite3.Connection, user_id: int) -> list[dict]:
     return [dict(row) for row in rows]
 
 
+def cleanup_expired_session_messages(
+    connection: sqlite3.Connection,
+    session_id: str,
+    user_id: int,
+    retention_days: int = MESSAGE_RETENTION_DAYS,
+) -> None:
+    cutoff = (datetime.utcnow() - timedelta(days=retention_days)).replace(microsecond=0).isoformat() + "Z"
+    connection.execute(
+        """
+        DELETE FROM messages
+        WHERE session_id = ?
+          AND created_at < ?
+          AND session_id IN (SELECT id FROM sessions WHERE id = ? AND user_id = ?)
+        """,
+        (session_id, cutoff, session_id, user_id),
+    )
+    connection.commit()
+
+
+def cleanup_expired_messages(
+    connection: sqlite3.Connection,
+    retention_days: int = MESSAGE_RETENTION_DAYS,
+) -> int:
+    cutoff = (datetime.utcnow() - timedelta(days=retention_days)).replace(microsecond=0).isoformat() + "Z"
+    cursor = connection.execute(
+        """
+        DELETE FROM messages
+        WHERE created_at < ?
+        """,
+        (cutoff,),
+    )
+    connection.commit()
+    return max(cursor.rowcount, 0)
+
+
 def get_messages(connection: sqlite3.Connection, session_id: str, user_id: int) -> list[dict]:
     rows = connection.execute(
         """
@@ -1168,6 +1220,187 @@ def list_users(connection: sqlite3.Connection) -> list[dict]:
     return [dict(row) for row in rows]
 
 
+def quote_identifier(identifier: str) -> str:
+    return '"' + identifier.replace('"', '""') + '"'
+
+
+def get_manageable_table_names(connection: sqlite3.Connection) -> list[str]:
+    rows = connection.execute(
+        """
+        SELECT name
+        FROM sqlite_master
+        WHERE type = 'table' AND name NOT LIKE 'sqlite_%'
+        ORDER BY name
+        """
+    ).fetchall()
+    return [str(row["name"]) for row in rows]
+
+
+def ensure_manageable_table(connection: sqlite3.Connection, table_name: str) -> str:
+    normalized = str(table_name).strip()
+    if normalized not in get_manageable_table_names(connection):
+        raise HTTPException(status_code=404, detail="Table not found")
+    return normalized
+
+
+def get_table_columns(connection: sqlite3.Connection, table_name: str) -> list[dict]:
+    table_name = ensure_manageable_table(connection, table_name)
+    rows = connection.execute(f"PRAGMA table_info({quote_identifier(table_name)})").fetchall()
+    return [dict(row) for row in rows]
+
+
+def get_table_primary_key_columns(connection: sqlite3.Connection, table_name: str) -> list[dict]:
+    columns = get_table_columns(connection, table_name)
+    return sorted((column for column in columns if int(column["pk"]) > 0), key=lambda item: int(item["pk"]))
+
+
+def get_table_row_count(connection: sqlite3.Connection, table_name: str) -> int:
+    table_name = ensure_manageable_table(connection, table_name)
+    row = connection.execute(
+        f"SELECT COUNT(*) AS count FROM {quote_identifier(table_name)}"
+    ).fetchone()
+    return int(row["count"]) if row is not None else 0
+
+
+def list_tables_with_metadata(connection: sqlite3.Connection) -> list[dict]:
+    results: list[dict] = []
+    for table_name in get_manageable_table_names(connection):
+        columns = get_table_columns(connection, table_name)
+        primary_keys = [column["name"] for column in get_table_primary_key_columns(connection, table_name)]
+        results.append(
+            {
+                "name": table_name,
+                "count": get_table_row_count(connection, table_name),
+                "columns": [column["name"] for column in columns],
+                "primary_keys": primary_keys,
+            }
+        )
+    return results
+
+
+def list_table_rows(connection: sqlite3.Connection, table_name: str, limit: int = 50, offset: int = 0) -> dict:
+    normalized_table = ensure_manageable_table(connection, table_name)
+    columns = get_table_columns(connection, normalized_table)
+    primary_keys = [column["name"] for column in get_table_primary_key_columns(connection, normalized_table)]
+    safe_limit = max(1, min(int(limit), 200))
+    safe_offset = max(0, int(offset))
+    rows = connection.execute(
+        f"SELECT * FROM {quote_identifier(normalized_table)} LIMIT ? OFFSET ?",
+        (safe_limit, safe_offset),
+    ).fetchall()
+    return {
+        "table": normalized_table,
+        "columns": columns,
+        "primary_keys": primary_keys,
+        "count": get_table_row_count(connection, normalized_table),
+        "rows": [dict(row) for row in rows],
+        "limit": safe_limit,
+        "offset": safe_offset,
+    }
+
+
+def validate_row_payload_columns(connection: sqlite3.Connection, table_name: str, payload: dict[str, object]) -> None:
+    valid_columns = {column["name"] for column in get_table_columns(connection, table_name)}
+    invalid_columns = sorted(set(payload) - valid_columns)
+    if invalid_columns:
+        raise HTTPException(status_code=400, detail=f"Unknown columns: {', '.join(invalid_columns)}")
+
+
+def build_where_clause_from_pk(primary_key_values: dict[str, object]) -> tuple[str, list[object]]:
+    if not primary_key_values:
+        raise HTTPException(status_code=400, detail="Primary key values are required")
+    parts: list[str] = []
+    params: list[object] = []
+    for key, value in primary_key_values.items():
+        parts.append(f"{quote_identifier(key)} = ?")
+        params.append(value)
+    return " AND ".join(parts), params
+
+
+def update_table_row(connection: sqlite3.Connection, table_name: str, pk: dict[str, object], updates: dict[str, object]) -> dict:
+    normalized_table = ensure_manageable_table(connection, table_name)
+    primary_keys = [column["name"] for column in get_table_primary_key_columns(connection, normalized_table)]
+    if not primary_keys:
+        raise HTTPException(status_code=400, detail="This table cannot be updated without a primary key")
+    if sorted(pk.keys()) != sorted(primary_keys):
+        raise HTTPException(status_code=400, detail=f"Primary key must contain exactly: {', '.join(primary_keys)}")
+    if not updates:
+        raise HTTPException(status_code=400, detail="No updates provided")
+
+    validate_row_payload_columns(connection, normalized_table, pk)
+    validate_row_payload_columns(connection, normalized_table, updates)
+    invalid_updates = sorted(set(updates) & set(primary_keys))
+    if invalid_updates:
+        raise HTTPException(status_code=400, detail=f"Primary key columns cannot be updated: {', '.join(invalid_updates)}")
+
+    set_clause = ", ".join(f"{quote_identifier(column)} = ?" for column in updates)
+    set_params = list(updates.values())
+    where_clause, where_params = build_where_clause_from_pk(pk)
+    try:
+        cursor = connection.execute(
+            f"UPDATE {quote_identifier(normalized_table)} SET {set_clause} WHERE {where_clause}",
+            [*set_params, *where_params],
+        )
+    except sqlite3.IntegrityError as exc:
+        raise HTTPException(status_code=409, detail=f"Update failed: {exc}") from exc
+    if cursor.rowcount == 0:
+        raise HTTPException(status_code=404, detail="Row not found")
+    connection.commit()
+    row = connection.execute(
+        f"SELECT * FROM {quote_identifier(normalized_table)} WHERE {where_clause} LIMIT 1",
+        where_params,
+    ).fetchone()
+    return dict(row) if row is not None else {}
+
+
+def insert_table_row(connection: sqlite3.Connection, table_name: str, values: dict[str, object]) -> dict:
+    normalized_table = ensure_manageable_table(connection, table_name)
+    if not values:
+        raise HTTPException(status_code=400, detail="No values provided")
+    validate_row_payload_columns(connection, normalized_table, values)
+    columns = list(values.keys())
+    placeholders = ", ".join("?" for _ in columns)
+    column_clause = ", ".join(quote_identifier(column) for column in columns)
+    params = [values[column] for column in columns]
+    try:
+        cursor = connection.execute(
+            f"INSERT INTO {quote_identifier(normalized_table)} ({column_clause}) VALUES ({placeholders})",
+            params,
+        )
+    except sqlite3.IntegrityError as exc:
+        raise HTTPException(status_code=409, detail=f"Insert failed: {exc}") from exc
+    connection.commit()
+    primary_keys = [column["name"] for column in get_table_primary_key_columns(connection, normalized_table)]
+    if len(primary_keys) == 1 and primary_keys[0] not in values:
+        inserted_pk = {primary_keys[0]: cursor.lastrowid}
+        where_clause, where_params = build_where_clause_from_pk(inserted_pk)
+        row = connection.execute(
+            f"SELECT * FROM {quote_identifier(normalized_table)} WHERE {where_clause} LIMIT 1",
+            where_params,
+        ).fetchone()
+        if row is not None:
+            return dict(row)
+    return dict(values)
+
+
+def delete_table_row(connection: sqlite3.Connection, table_name: str, pk: dict[str, object]) -> None:
+    normalized_table = ensure_manageable_table(connection, table_name)
+    primary_keys = [column["name"] for column in get_table_primary_key_columns(connection, normalized_table)]
+    if not primary_keys:
+        raise HTTPException(status_code=400, detail="This table cannot be deleted without a primary key")
+    if sorted(pk.keys()) != sorted(primary_keys):
+        raise HTTPException(status_code=400, detail=f"Primary key must contain exactly: {', '.join(primary_keys)}")
+    validate_row_payload_columns(connection, normalized_table, pk)
+    where_clause, where_params = build_where_clause_from_pk(pk)
+    cursor = connection.execute(
+        f"DELETE FROM {quote_identifier(normalized_table)} WHERE {where_clause}",
+        where_params,
+    )
+    if cursor.rowcount == 0:
+        raise HTTPException(status_code=404, detail="Row not found")
+    connection.commit()
+
+
 def send_and_persist_reply(
     connection: sqlite3.Connection,
     session_id: str,
@@ -1262,9 +1495,35 @@ def extract_stream_text(chunk: dict) -> str:
     return ""
 
 
+async def periodic_message_cleanup() -> None:
+    while True:
+        try:
+            with closing(get_connection()) as connection:
+                deleted_count = cleanup_expired_messages(connection)
+            logger.info("Periodic message cleanup finished, deleted %s expired rows", deleted_count)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception("Periodic message cleanup failed")
+        await asyncio.sleep(MESSAGE_CLEANUP_INTERVAL_SECONDS)
+
+
 @app.on_event("startup")
-def startup() -> None:
+async def startup() -> None:
     init_db()
+    app.state.message_cleanup_task = asyncio.create_task(periodic_message_cleanup())
+
+
+@app.on_event("shutdown")
+async def shutdown() -> None:
+    task = getattr(app.state, "message_cleanup_task", None)
+    if task is None:
+        return
+    task.cancel()
+    try:
+        await task
+    except asyncio.CancelledError:
+        pass
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -1551,6 +1810,61 @@ def api_admin_update_user_status(
             (user_id,),
         ).fetchone()
         return {"user": dict(updated)}
+
+
+@app.get("/api/admin/db/tables")
+def api_admin_db_tables(user_session: str | None = Cookie(default=None)) -> dict:
+    with closing(get_connection()) as connection:
+        require_superadmin(connection, user_session)
+        return {"tables": list_tables_with_metadata(connection)}
+
+
+@app.get("/api/admin/db/tables/{table_name}")
+def api_admin_db_table_rows(
+    table_name: str,
+    limit: int = 50,
+    offset: int = 0,
+    user_session: str | None = Cookie(default=None),
+) -> dict:
+    with closing(get_connection()) as connection:
+        require_superadmin(connection, user_session)
+        return list_table_rows(connection, table_name, limit=limit, offset=offset)
+
+
+@app.post("/api/admin/db/tables/{table_name}/rows")
+def api_admin_db_insert_row(
+    table_name: str,
+    payload: DatabaseRowInsertRequest,
+    user_session: str | None = Cookie(default=None),
+) -> dict:
+    with closing(get_connection()) as connection:
+        require_superadmin(connection, user_session)
+        row = insert_table_row(connection, table_name, payload.values)
+        return {"row": row}
+
+
+@app.patch("/api/admin/db/tables/{table_name}/rows")
+def api_admin_db_update_row(
+    table_name: str,
+    payload: DatabaseRowUpdateRequest,
+    user_session: str | None = Cookie(default=None),
+) -> dict:
+    with closing(get_connection()) as connection:
+        require_superadmin(connection, user_session)
+        row = update_table_row(connection, table_name, payload.pk, payload.updates)
+        return {"row": row}
+
+
+@app.delete("/api/admin/db/tables/{table_name}/rows")
+def api_admin_db_delete_row(
+    table_name: str,
+    payload: DatabaseRowDeleteRequest,
+    user_session: str | None = Cookie(default=None),
+) -> dict:
+    with closing(get_connection()) as connection:
+        require_superadmin(connection, user_session)
+        delete_table_row(connection, table_name, payload.pk)
+        return {"ok": True}
 
 
 @app.get("/api/sessions")
