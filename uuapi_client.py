@@ -8,7 +8,13 @@ import httpx
 
 DEFAULT_BASE_URL = os.getenv("UUAPI_BASE_URL", "https://uuapi.net").rstrip("/")
 DEFAULT_MODEL = "claude-opus-4-6"
-SUPPORTED_MODELS = {"claude-opus-4-6", "claude-sonnet-4-6"}
+OPUS_47_MODEL = "claude-opus-4-7"
+SUPPORTED_MODELS = {"claude-opus-4-6", "claude-sonnet-4-6", OPUS_47_MODEL}
+MODEL_ALIASES = {
+    "opus4.7": OPUS_47_MODEL,
+    "opus-4.7": OPUS_47_MODEL,
+    "claude-opus-4.7": OPUS_47_MODEL,
+}
 SUPPORTED_IMAGE_MEDIA_TYPES = {
     "image/jpeg",
     "image/png",
@@ -45,8 +51,15 @@ def resolve_api_key(explicit_api_key: str | None = None) -> str:
 
 
 def normalize_model(model: str | None) -> str:
-    if model in SUPPORTED_MODELS:
-        return model
+    raw_model = str(model or "").strip()
+    if not raw_model:
+        return DEFAULT_MODEL
+
+    normalized_map = {name.lower(): name for name in SUPPORTED_MODELS}
+    normalized_map.update({alias.lower(): target for alias, target in MODEL_ALIASES.items()})
+    resolved = normalized_map.get(raw_model.lower())
+    if resolved in SUPPORTED_MODELS:
+        return resolved
     return DEFAULT_MODEL
 
 

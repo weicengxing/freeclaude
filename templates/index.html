@@ -18,10 +18,11 @@
                 <button id="new-chat-btn" class="primary-btn" type="button">新对话</button>
                 <select id="model-select">
                     {% for model in models %}
-                    <option value="{{ model }}" {% if model == default_model %}selected{% endif %}>{{ model }}</option>
+                    <option value="{{ model.value }}" {% if model.value == default_model %}selected{% endif %}>{{ model.label }}</option>
                     {% endfor %}
                 </select>
             </div>
+            <div id="model-note" class="helper">Opus 4.7：适合更复杂的推理和更高质量生成，仅 SuperAdmin 和付费用户可用。</div>
             <div>
                 <div id="auth-user" class="session-title">未登录</div>
                 <div id="auth-meta" class="meta-text">请先登录后再开始聊天。</div>
@@ -45,6 +46,7 @@
                         <div id="chat-subtitle" class="meta-text">登录后历史会话会保存在 SQLite 中。</div>
                     </div>
                     <div class="auth-actions">
+                        <button id="import-opus47-keys-btn" class="secondary-btn hidden" type="button">导入 Opus4.7 Key</button>
                         <button id="import-keys-btn" class="secondary-btn hidden" type="button">导入</button>
                         <button id="admin-btn" class="secondary-btn hidden" type="button">用户管理</button>
                         <button id="show-auth-btn" class="secondary-btn hidden" type="button">登录 / 注册</button>
@@ -220,7 +222,9 @@
             sending: false,
             currentAssistantMessageId: null,
             importingKeys: false,
+            importingOpus47Keys: false,
             keyCount: 0,
+            opus47KeyCount: 0,
             adminTables: [],
             adminDbQuery: "",
             selectedAdminTable: "",
@@ -235,6 +239,7 @@
         const chatTitleEl = document.getElementById("chat-title");
         const chatSubtitleEl = document.getElementById("chat-subtitle");
         const modelSelectEl = document.getElementById("model-select");
+        const modelNoteEl = document.getElementById("model-note");
         const chatFormEl = document.getElementById("chat-form");
         const messageInputEl = document.getElementById("message-input");
         const imageInputEl = document.getElementById("image-input");
@@ -250,6 +255,7 @@
         const renameSessionBtnEl = document.getElementById("rename-session-btn");
         const deleteSessionBtnEl = document.getElementById("delete-session-btn");
         const importKeysBtnEl = document.getElementById("import-keys-btn");
+        const importOpus47KeysBtnEl = document.getElementById("import-opus47-keys-btn");
         const keyMetaEl = document.getElementById("key-meta");
         const keyToolsEl = document.getElementById("key-tools");
         const authOverlayEl = document.getElementById("auth-overlay");
@@ -306,20 +312,35 @@
         }
 
         function renderKeyMeta(sourceUrl = null) {
-            if (!importKeysBtnEl) {
+            if (!importKeysBtnEl || !importOpus47KeysBtnEl) {
                 return;
             }
             if (keyMetaEl) {
                 const sourceText = sourceUrl || "GitHub";
                 keyMetaEl.textContent = `Key ${state.keyCount} · ${sourceText}`;
             }
-            importKeysBtnEl.disabled = !state.auth?.is_admin || state.sending || state.importingKeys;
-            importKeysBtnEl.textContent = state.importingKeys ? "导入中..." : "导入";
+            importKeysBtnEl.disabled = !state.auth?.is_superadmin || state.sending || state.importingKeys;
+            importKeysBtnEl.textContent = state.importingKeys ? "Importing Key..." : `导入普通 Key (${state.keyCount})`;
+            importOpus47KeysBtnEl.disabled = !state.auth?.is_superadmin || state.sending || state.importingOpus47Keys;
+            importOpus47KeysBtnEl.textContent = state.importingOpus47Keys
+                ? "Importing Opus4.7 Key..."
+                : `导入 Opus4.7 Key (${state.opus47KeyCount})`;
+            importKeysBtnEl.textContent = state.importingKeys ? "Importing Key..." : `导入普通 Key (${state.keyCount})`;
         }
 
         function setAuthStatus(text, isError = false) {
             authStatusEl.textContent = text || "";
             authStatusEl.style.color = isError ? "#dc2626" : "#667085";
+        }
+
+        function renderModelNote() {
+            if (!modelNoteEl) {
+                return;
+            }
+            const suffix = state.auth?.authenticated
+                ? (state.auth?.can_use_opus47 ? "当前账号可直接使用。" : "当前账号选择后会在后端做权限校验。")
+                : "登录后会按账号权限校验。";
+            modelNoteEl.textContent = `Opus 4.7：适合更复杂的推理和更高质量生成，仅 SuperAdmin 和付费用户可用。${suffix}`;
         }
 
         function setAdminStatus(text, isError = false) {
@@ -333,7 +354,7 @@
 
         async function switchMainView(view) {
             const isDbView = view === "db";
-            if (isDbView && !state.auth?.is_admin) {
+            if (isDbView && !state.auth?.is_superadmin) {
                 setStatus("只有 SuperAdmin 可以进入数据库管理");
                 return;
             }
@@ -553,17 +574,19 @@
         function applyAuth(auth) {
             state.auth = auth;
             const loggedIn = Boolean(auth?.authenticated);
+            const isSuperadmin = Boolean(auth?.is_superadmin);
             authUserEl.textContent = loggedIn ? auth.user.username : "未登录";
             authMetaEl.textContent = loggedIn
-                ? `${auth.user.email} · ${auth.user.role}`
+                ? `${auth.user.email} · ${auth.user.role}${auth.is_paid ? " · 付费用户" : ""}`
                 : "请先登录后再开始聊天。";
-            importKeysBtnEl.classList.toggle("hidden", !auth?.is_admin);
+            importKeysBtnEl.classList.toggle("hidden", !isSuperadmin);
+            importOpus47KeysBtnEl.classList.toggle("hidden", !isSuperadmin);
             logoutBtnEl.classList.toggle("hidden", !loggedIn);
             showAuthBtnEl.classList.toggle("hidden", loggedIn);
-            adminBtnEl.classList.toggle("hidden", !auth?.is_admin);
-            dbViewBtnEl.classList.toggle("hidden", !auth?.is_admin);
+            adminBtnEl.classList.toggle("hidden", !isSuperadmin);
+            dbViewBtnEl.classList.toggle("hidden", !isSuperadmin);
             if (keyToolsEl) {
-                keyToolsEl.classList.toggle("hidden", !auth?.is_admin);
+                keyToolsEl.classList.toggle("hidden", !isSuperadmin);
             }
             messageInputEl.disabled = !loggedIn || state.sending;
             imageInputEl.disabled = !loggedIn || state.sending;
@@ -573,9 +596,10 @@
             modelSelectEl.disabled = !loggedIn || state.sending;
             renameSessionBtnEl.disabled = !loggedIn || !state.sessionId || state.sending;
             deleteSessionBtnEl.disabled = !loggedIn || !state.sessionId || state.sending;
+            renderModelNote();
             renderKeyMeta();
 
-            if (!auth?.is_admin && state.currentView === "db") {
+            if (!isSuperadmin && state.currentView === "db") {
                 void switchMainView("chat");
             }
 
@@ -585,6 +609,7 @@
                 state.sessions = [];
                 state.messages = [];
                 state.keyCount = 0;
+                state.opus47KeyCount = 0;
                 clearSelectedImage();
                 renderSessions();
                 renderMessages();
@@ -841,18 +866,20 @@ function renderMessages() {
         }
 
         async function refreshKeyStatus() {
-            if (!state.auth?.is_admin) {
+            if (!state.auth?.is_superadmin) {
                 state.keyCount = 0;
+                state.opus47KeyCount = 0;
                 renderKeyMeta();
                 return;
             }
             const data = await fetchJson("/api/keys");
             state.keyCount = data.total_keys || 0;
+            state.opus47KeyCount = data.opus47_total_keys || 0;
             renderKeyMeta(data.source_url);
         }
 
         async function importKeysFromGithub() {
-            if (!state.auth?.is_admin) {
+            if (!state.auth?.is_superadmin) {
                 return;
             }
             state.importingKeys = true;
@@ -869,6 +896,28 @@ function renderMessages() {
                 setStatus(error.message || "导入 Key 失败");
             } finally {
                 state.importingKeys = false;
+                renderKeyMeta();
+            }
+        }
+
+        async function importOpus47KeysFromGithub() {
+            if (!state.auth?.is_superadmin) {
+                return;
+            }
+            state.importingOpus47Keys = true;
+            renderKeyMeta();
+            setStatus("Importing Opus4.7 keys from GitHub...");
+            try {
+                const data = await fetchJson("/api/keys/opus47/import", {
+                    method: "POST",
+                });
+                state.opus47KeyCount = data.total_keys || state.opus47KeyCount;
+                renderKeyMeta(data.source_url);
+                setStatus(`Opus4.7 Key import finished: +${data.inserted_count}, skipped ${data.ignored_count}`);
+            } catch (error) {
+                setStatus(error.message || "Import Opus4.7 key failed");
+            } finally {
+                state.importingOpus47Keys = false;
                 renderKeyMeta();
             }
         }
@@ -909,7 +958,7 @@ function renderMessages() {
         }
 
         async function refreshAdminUsers() {
-            if (!state.auth?.is_admin) {
+            if (!state.auth?.is_superadmin) {
                 return;
             }
             setAdminStatus("正在加载用户列表...");
@@ -1217,7 +1266,7 @@ function renderMessages() {
         }
 
         async function refreshAdminTables() {
-            if (!state.auth?.is_admin) {
+            if (!state.auth?.is_superadmin) {
                 return;
             }
             setAdminStatus("正在加载数据库表...");
@@ -1628,6 +1677,10 @@ function renderMessages() {
             await importKeysFromGithub();
         });
 
+        importOpus47KeysBtnEl.addEventListener("click", async () => {
+            await importOpus47KeysFromGithub();
+        });
+
         document.getElementById("chat-form").addEventListener("submit", async (event) => {
             event.preventDefault();
             await sendMessage();
@@ -1984,7 +2037,12 @@ function renderMessages() {
             const files = normalizeFilesForRequest(selectedFiles);
             if ((!message && !images.length && !files.length) || state.sending) return;
             if (!state.sessionId) {
-                await createSession();
+                try {
+                    await createSession();
+                } catch (error) {
+                    setStatus(error.message || "创建会话失败");
+                    return;
+                }
             }
             if (!state.sessionId) return;
 
@@ -2085,7 +2143,7 @@ function renderMessages() {
             renderComposerImage();
             const auth = await refreshAuth();
             if (auth?.authenticated) {
-                if (auth.is_admin) {
+                if (auth.is_superadmin) {
                     await refreshKeyStatus();
                 }
                 await refreshSessions();

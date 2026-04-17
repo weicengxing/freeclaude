@@ -31,8 +31,8 @@ from pypdf.errors import PdfReadError
 
 from uuapi_client import (
     DEFAULT_MODEL,
+    OPUS_47_MODEL,
     SUPPORTED_IMAGE_MEDIA_TYPES,
-    SUPPORTED_MODELS,
     iter_stream_chat,
     normalize_model,
     send_chat,
@@ -42,6 +42,7 @@ from uuapi_client import (
 BASE_DIR = Path(__file__).resolve().parent
 DB_PATH = BASE_DIR / "chat_app.db"
 DEFAULT_KEY_SOURCE_URL = "https://github.com/weicengxing/freeclaude/blob/main/key.txt"
+OPUS47_KEY_SOURCE_URL = "https://github.com/weicengxing/freeclaude/blob/main/keypromax.txt"
 logger = logging.getLogger(__name__)
 
 USER_SESSION_COOKIE = "user_session"
@@ -49,6 +50,12 @@ USER_SESSION_TTL_SECONDS = 60 * 60 * 24 * 7
 ROLE_USER = "User"
 ROLE_SUPERADMIN = "SuperAdmin"
 VALID_ROLES = {ROLE_USER, ROLE_SUPERADMIN}
+PREMIUM_MODELS = {OPUS_47_MODEL}
+MODEL_OPTIONS = [
+    {"value": "claude-opus-4-6", "label": "claude-opus-4-6"},
+    {"value": "claude-sonnet-4-6", "label": "claude-sonnet-4-6"},
+    {"value": OPUS_47_MODEL, "label": "opus4.7"},
+]
 VERIFY_CODE_TTL_MINUTES = 10
 VERIFY_PURPOSE_REGISTER = "register"
 VERIFY_PURPOSE_RESET = "reset"
@@ -67,6 +74,26 @@ DOCUMENT_EXTENSION_MEDIA_TYPES = {
     ".txt": "text/plain",
     ".pdf": "application/pdf",
     ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+}
+KEY_POOL_DEFAULT = "default"
+KEY_POOL_OPUS47 = "opus47"
+KEY_POOL_CONFIGS = {
+    KEY_POOL_DEFAULT: {
+        "key_table": "api_keys",
+        "allocator_table": "api_key_allocator_state",
+        "user_batch_start_column": "api_key_batch_start_id",
+        "user_current_column": "current_api_key_id",
+        "user_batch_size_column": "api_key_batch_size",
+        "source_url": DEFAULT_KEY_SOURCE_URL,
+    },
+    KEY_POOL_OPUS47: {
+        "key_table": "api_keys_opus47",
+        "allocator_table": "api_key_allocator_state_opus47",
+        "user_batch_start_column": "opus47_api_key_batch_start_id",
+        "user_current_column": "opus47_current_api_key_id",
+        "user_batch_size_column": "opus47_api_key_batch_size",
+        "source_url": OPUS47_KEY_SOURCE_URL,
+    },
 }
 
 
@@ -192,6 +219,17 @@ def rollback_if_needed(connection: sqlite3.Connection) -> None:
         connection.rollback()
 
 
+def get_key_pool_config(key_pool: str) -> dict[str, str]:
+    config = KEY_POOL_CONFIGS.get(key_pool)
+    if config is None:
+        raise HTTPException(status_code=400, detail="Unsupported API key pool")
+    return config
+
+
+def get_key_pool_name_for_model(model: str | None) -> str:
+    return KEY_POOL_OPUS47 if normalize_model(model) == OPUS_47_MODEL else KEY_POOL_DEFAULT
+
+
 def table_has_column(connection: sqlite3.Connection, table_name: str, column_name: str) -> bool:
     columns = connection.execute(f"PRAGMA table_info({table_name})").fetchall()
     return any(column["name"] == column_name for column in columns)
@@ -257,6 +295,21 @@ def send_email(to_email: str, subject: str, html_content: str) -> bool:
 def normalize_role(role: str | None) -> str:
     role = str(role or "").strip()
     return role if role in VALID_ROLES else ROLE_USER
+
+
+def is_superadmin(user: dict | None) -> bool:
+    return bool(user) and user.get("role") == ROLE_SUPERADMIN
+
+
+def is_paid_user(user: dict | None) -> bool:
+    return bool(user) and bool(user.get("is_paid"))
+
+
+def validate_requested_model(user: dict | None, model: str | None) -> str:
+    normalized_model = normalize_model(model)
+    if normalized_model in PREMIUM_MODELS and not (is_superadmin(user) or is_paid_user(user)):
+        raise HTTPException(status_code=403, detail="Opus 4.7 仅 SuperAdmin 和付费用户可用")
+    return normalized_model
 
 
 def model_to_dict(model: BaseModel | None) -> dict[str, Any] | None:
@@ -781,6 +834,16 @@ def init_db() -> None:
             CREATE UNIQUE INDEX IF NOT EXISTS idx_api_keys_api_key
             ON api_keys(api_key);
 
+            CREATE TABLE IF NOT EXISTS api_keys_opus47 (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                api_key TEXT NOT NULL,
+                source_url TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            );
+
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_api_keys_opus47_api_key
+            ON api_keys_opus47(api_key);
+
             CREATE INDEX IF NOT EXISTS idx_message_files_message_id
             ON message_files(message_id);
 
@@ -788,6 +851,12 @@ def init_db() -> None:
             ON message_files(session_id);
 
             CREATE TABLE IF NOT EXISTS api_key_allocator_state (
+                singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+                next_batch_start_id INTEGER,
+                updated_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS api_key_allocator_state_opus47 (
                 singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
                 next_batch_start_id INTEGER,
                 updated_at TEXT NOT NULL
@@ -802,6 +871,14 @@ def init_db() -> None:
             connection.execute("ALTER TABLE users ADD COLUMN current_api_key_id INTEGER")
         if not table_has_column(connection, "users", "api_key_batch_size"):
             connection.execute("ALTER TABLE users ADD COLUMN api_key_batch_size INTEGER")
+        if not table_has_column(connection, "users", "opus47_api_key_batch_start_id"):
+            connection.execute("ALTER TABLE users ADD COLUMN opus47_api_key_batch_start_id INTEGER")
+        if not table_has_column(connection, "users", "opus47_current_api_key_id"):
+            connection.execute("ALTER TABLE users ADD COLUMN opus47_current_api_key_id INTEGER")
+        if not table_has_column(connection, "users", "opus47_api_key_batch_size"):
+            connection.execute("ALTER TABLE users ADD COLUMN opus47_api_key_batch_size INTEGER")
+        if not table_has_column(connection, "users", "is_paid"):
+            connection.execute("ALTER TABLE users ADD COLUMN is_paid INTEGER NOT NULL DEFAULT 0")
         connection.execute(
             """
             UPDATE users
@@ -853,7 +930,8 @@ def get_current_user(connection: sqlite3.Connection, token: str | None) -> dict 
             users.username,
             users.email,
             users.role,
-            users.is_active
+            users.is_active,
+            COALESCE(users.is_paid, 0) AS is_paid
         FROM auth_sessions
         JOIN users ON users.id = auth_sessions.user_id
         WHERE auth_sessions.token = ?
@@ -877,6 +955,7 @@ def get_current_user(connection: sqlite3.Connection, token: str | None) -> dict 
         "username": row["username"],
         "email": row["email"],
         "role": normalize_role(row["role"]),
+        "is_paid": bool(row["is_paid"]),
     }
 
 
@@ -889,7 +968,7 @@ def require_user(connection: sqlite3.Connection, token: str | None) -> dict:
 
 def require_superadmin(connection: sqlite3.Connection, token: str | None) -> dict:
     user = require_user(connection, token)
-    if user["role"] != ROLE_SUPERADMIN:
+    if not is_superadmin(user):
         raise HTTPException(status_code=403, detail="仅 SuperAdmin 可操作")
     return user
 
@@ -1337,7 +1416,13 @@ def parse_api_keys_from_text(raw_text: str) -> list[str]:
     return unique_keys
 
 
-def import_api_keys_from_url(connection: sqlite3.Connection, source_url: str) -> dict:
+def import_api_keys_from_url(
+    connection: sqlite3.Connection,
+    source_url: str,
+    key_pool: str = KEY_POOL_DEFAULT,
+) -> dict:
+    config = get_key_pool_config(key_pool)
+    key_table = config["key_table"]
     raw_url = normalize_github_raw_url(source_url)
     try:
         response = httpx.get(raw_url, timeout=30.0, follow_redirects=True)
@@ -1353,8 +1438,8 @@ def import_api_keys_from_url(connection: sqlite3.Connection, source_url: str) ->
     now = utc_now()
     for api_key in parsed_keys:
         cursor = connection.execute(
-            """
-            INSERT OR IGNORE INTO api_keys (api_key, source_url, created_at)
+            f"""
+            INSERT OR IGNORE INTO {quote_identifier(key_table)} (api_key, source_url, created_at)
             VALUES (?, ?, ?)
             """,
             (api_key, source_url, now),
@@ -1362,8 +1447,11 @@ def import_api_keys_from_url(connection: sqlite3.Connection, source_url: str) ->
         inserted_count += cursor.rowcount
     connection.commit()
 
-    total_keys = connection.execute("SELECT COUNT(*) AS count FROM api_keys").fetchone()["count"]
+    total_keys = connection.execute(
+        f"SELECT COUNT(*) AS count FROM {quote_identifier(key_table)}"
+    ).fetchone()["count"]
     return {
+        "pool": key_pool,
         "source_url": source_url,
         "raw_url": raw_url,
         "read_count": len(parsed_keys),
@@ -1373,27 +1461,42 @@ def import_api_keys_from_url(connection: sqlite3.Connection, source_url: str) ->
     }
 
 
-def get_api_key_id_bounds(connection: sqlite3.Connection) -> tuple[int | None, int | None]:
+def get_api_key_id_bounds(
+    connection: sqlite3.Connection,
+    key_pool: str = KEY_POOL_DEFAULT,
+) -> tuple[int | None, int | None]:
+    config = get_key_pool_config(key_pool)
+    key_table = config["key_table"]
     row = connection.execute(
-        "SELECT MIN(id) AS min_id, MAX(id) AS max_id FROM api_keys"
+        f"SELECT MIN(id) AS min_id, MAX(id) AS max_id FROM {quote_identifier(key_table)}"
     ).fetchone()
     if row is None or row["min_id"] is None or row["max_id"] is None:
         return None, None
     return int(row["min_id"]), int(row["max_id"])
 
 
-def get_api_key_count(connection: sqlite3.Connection) -> int:
-    row = connection.execute("SELECT COUNT(*) AS count FROM api_keys").fetchone()
+def get_api_key_count(connection: sqlite3.Connection, key_pool: str = KEY_POOL_DEFAULT) -> int:
+    config = get_key_pool_config(key_pool)
+    key_table = config["key_table"]
+    row = connection.execute(
+        f"SELECT COUNT(*) AS count FROM {quote_identifier(key_table)}"
+    ).fetchone()
     return int(row["count"]) if row is not None else 0
 
 
-def get_api_key_record_by_id(connection: sqlite3.Connection, key_id: int | None) -> dict | None:
+def get_api_key_record_by_id(
+    connection: sqlite3.Connection,
+    key_id: int | None,
+    key_pool: str = KEY_POOL_DEFAULT,
+) -> dict | None:
     if key_id is None:
         return None
+    config = get_key_pool_config(key_pool)
+    key_table = config["key_table"]
     row = connection.execute(
-        """
+        f"""
         SELECT id, api_key, source_url, created_at
-        FROM api_keys
+        FROM {quote_identifier(key_table)}
         WHERE id = ?
         LIMIT 1
         """,
@@ -1402,10 +1505,19 @@ def get_api_key_record_by_id(connection: sqlite3.Connection, key_id: int | None)
     return dict(row) if row is not None else None
 
 
-def get_user_key_state(connection: sqlite3.Connection, user_id: int) -> dict | None:
+def get_user_key_state(
+    connection: sqlite3.Connection,
+    user_id: int,
+    key_pool: str = KEY_POOL_DEFAULT,
+) -> dict | None:
+    config = get_key_pool_config(key_pool)
     row = connection.execute(
-        """
-        SELECT id, api_key_batch_start_id, current_api_key_id, api_key_batch_size
+        f"""
+        SELECT
+            id,
+            {quote_identifier(config["user_batch_start_column"])} AS api_key_batch_start_id,
+            {quote_identifier(config["user_current_column"])} AS current_api_key_id,
+            {quote_identifier(config["user_batch_size_column"])} AS api_key_batch_size
         FROM users
         WHERE id = ?
         LIMIT 1
@@ -1424,32 +1536,41 @@ def get_effective_user_batch_size(user_state: dict | None) -> int | None:
     return int(batch_size)
 
 
-def init_allocator_state_row(connection: sqlite3.Connection) -> None:
+def init_allocator_state_row(connection: sqlite3.Connection, key_pool: str = KEY_POOL_DEFAULT) -> None:
+    config = get_key_pool_config(key_pool)
+    allocator_table = config["allocator_table"]
     row = connection.execute(
-        "SELECT singleton FROM api_key_allocator_state WHERE singleton = 1"
+        f"SELECT singleton FROM {quote_identifier(allocator_table)} WHERE singleton = 1"
     ).fetchone()
     if row is None:
         connection.execute(
-            """
-            INSERT INTO api_key_allocator_state (singleton, next_batch_start_id, updated_at)
+            f"""
+            INSERT INTO {quote_identifier(allocator_table)} (singleton, next_batch_start_id, updated_at)
             VALUES (1, NULL, ?)
             """,
             (utc_now(),),
         )
 
 
-def allocate_key_batch_locked(connection: sqlite3.Connection, user_id: int) -> dict:
-    min_key_id, _ = get_api_key_id_bounds(connection)
+def allocate_key_batch_locked(
+    connection: sqlite3.Connection,
+    user_id: int,
+    key_pool: str = KEY_POOL_DEFAULT,
+) -> dict:
+    config = get_key_pool_config(key_pool)
+    key_table = config["key_table"]
+    allocator_table = config["allocator_table"]
+    min_key_id, _ = get_api_key_id_bounds(connection, key_pool)
     if min_key_id is None:
         raise HTTPException(status_code=503, detail="当前没有可用的 API Key")
 
     try:
         connection.execute("BEGIN IMMEDIATE")
-        init_allocator_state_row(connection)
+        init_allocator_state_row(connection, key_pool)
         state = connection.execute(
-            """
+            f"""
             SELECT next_batch_start_id
-            FROM api_key_allocator_state
+            FROM {quote_identifier(allocator_table)}
             WHERE singleton = 1
             LIMIT 1
             """
@@ -1462,9 +1583,9 @@ def allocate_key_batch_locked(connection: sqlite3.Connection, user_id: int) -> d
         allocated_batch_size = USER_KEY_BATCH_SIZE
         batch_end_id = batch_start_id + allocated_batch_size - 1
         available_count = connection.execute(
-            """
+            f"""
             SELECT COUNT(*) AS count
-            FROM api_keys
+            FROM {quote_identifier(key_table)}
             WHERE id BETWEEN ? AND ?
             """,
             (batch_start_id, batch_end_id),
@@ -1477,17 +1598,20 @@ def allocate_key_batch_locked(connection: sqlite3.Connection, user_id: int) -> d
 
         now = utc_now()
         connection.execute(
-            """
-            UPDATE api_key_allocator_state
+            f"""
+            UPDATE {quote_identifier(allocator_table)}
             SET next_batch_start_id = ?, updated_at = ?
             WHERE singleton = 1
             """,
             (batch_end_id + 1, now),
         )
         connection.execute(
-            """
+            f"""
             UPDATE users
-            SET api_key_batch_start_id = ?, current_api_key_id = ?, api_key_batch_size = ?
+            SET
+                {quote_identifier(config["user_batch_start_column"])} = ?,
+                {quote_identifier(config["user_current_column"])} = ?,
+                {quote_identifier(config["user_batch_size_column"])} = ?
             WHERE id = ?
             """,
             (batch_start_id, batch_start_id, allocated_batch_size, user_id),
@@ -1497,25 +1621,35 @@ def allocate_key_batch_locked(connection: sqlite3.Connection, user_id: int) -> d
         rollback_if_needed(connection)
         raise
 
-    key_record = get_api_key_record_by_id(connection, batch_start_id)
+    key_record = get_api_key_record_by_id(connection, batch_start_id, key_pool)
     if key_record is None:
         raise HTTPException(status_code=503, detail="分配的 API Key 不存在")
     return key_record
 
 
-def ensure_user_api_key(connection: sqlite3.Connection, user_id: int) -> dict:
-    user_state = get_user_key_state(connection, user_id)
+def ensure_user_api_key(
+    connection: sqlite3.Connection,
+    user_id: int,
+    key_pool: str = KEY_POOL_DEFAULT,
+) -> dict:
+    user_state = get_user_key_state(connection, user_id, key_pool)
     current_key_id = None if user_state is None else user_state["current_api_key_id"]
-    key_record = get_api_key_record_by_id(connection, current_key_id)
+    key_record = get_api_key_record_by_id(connection, current_key_id, key_pool)
     if key_record is not None:
         return key_record
-    return allocate_key_batch_locked(connection, user_id)
+    return allocate_key_batch_locked(connection, user_id, key_pool)
 
 
-def advance_user_api_key(connection: sqlite3.Connection, user_id: int, exhausted_key_id: int | None) -> dict:
+def advance_user_api_key(
+    connection: sqlite3.Connection,
+    user_id: int,
+    exhausted_key_id: int | None,
+    key_pool: str = KEY_POOL_DEFAULT,
+) -> dict:
+    config = get_key_pool_config(key_pool)
     try:
         connection.execute("BEGIN IMMEDIATE")
-        user_state = get_user_key_state(connection, user_id)
+        user_state = get_user_key_state(connection, user_id, key_pool)
         if user_state is None:
             raise HTTPException(status_code=404, detail="用户不存在")
 
@@ -1525,30 +1659,30 @@ def advance_user_api_key(connection: sqlite3.Connection, user_id: int, exhausted
 
         if current_key_id is None or batch_start_id is None or batch_size is None:
             rollback_if_needed(connection)
-            return allocate_key_batch_locked(connection, user_id)
+            return allocate_key_batch_locked(connection, user_id, key_pool)
 
         if exhausted_key_id is not None and current_key_id != exhausted_key_id:
             connection.commit()
-            key_record = get_api_key_record_by_id(connection, current_key_id)
+            key_record = get_api_key_record_by_id(connection, current_key_id, key_pool)
             if key_record is None:
-                return allocate_key_batch_locked(connection, user_id)
+                return allocate_key_batch_locked(connection, user_id, key_pool)
             return key_record
 
         batch_end_id = int(batch_start_id) + batch_size - 1
         if int(current_key_id) < batch_end_id:
             next_key_id = int(current_key_id) + 1
-            key_record = get_api_key_record_by_id(connection, next_key_id)
+            key_record = get_api_key_record_by_id(connection, next_key_id, key_pool)
             if key_record is None:
                 raise HTTPException(status_code=503, detail="下一个 API Key 不存在")
             connection.execute(
-                "UPDATE users SET current_api_key_id = ? WHERE id = ?",
+                f"UPDATE users SET {quote_identifier(config['user_current_column'])} = ? WHERE id = ?",
                 (next_key_id, user_id),
             )
             connection.commit()
             return key_record
 
         connection.commit()
-        return allocate_key_batch_locked(connection, user_id)
+        return allocate_key_batch_locked(connection, user_id, key_pool)
     except Exception:
         rollback_if_needed(connection)
         raise
@@ -1591,12 +1725,13 @@ def send_chat_with_user_api_key(
     model: str,
     session_id: str,
 ) -> dict:
-    retry_limit = max(1, min(get_api_key_count(connection), 50))
+    key_pool = get_key_pool_name_for_model(model)
+    retry_limit = max(1, min(get_api_key_count(connection, key_pool), 50))
     attempted_key_ids: set[int] = set()
     last_exc: Exception | None = None
 
     for _ in range(retry_limit):
-        key_record = ensure_user_api_key(connection, user_id)
+        key_record = ensure_user_api_key(connection, user_id, key_pool)
         key_id = int(key_record["id"])
         if key_id in attempted_key_ids:
             break
@@ -1613,7 +1748,7 @@ def send_chat_with_user_api_key(
             last_exc = exc
             if not is_api_key_quota_error(exc):
                 raise
-            advance_user_api_key(connection, user_id, key_id)
+            advance_user_api_key(connection, user_id, key_id, key_pool)
 
     if last_exc is not None:
         raise HTTPException(status_code=503, detail=f"所有可切换的 API Key 都不可用: {last_exc}") from last_exc
@@ -1654,10 +1789,20 @@ def restore_messages(connection: sqlite3.Connection, messages: list[dict]) -> No
 
 def auth_payload(user: dict | None) -> dict:
     if user is None:
-        return {"authenticated": False, "user": None, "is_admin": False}
+        return {
+            "authenticated": False,
+            "user": None,
+            "is_admin": False,
+            "is_superadmin": False,
+            "is_paid": False,
+            "can_use_opus47": False,
+        }
     return {
         "authenticated": True,
-        "is_admin": user["role"] == ROLE_SUPERADMIN,
+        "is_admin": is_superadmin(user),
+        "is_superadmin": is_superadmin(user),
+        "is_paid": is_paid_user(user),
+        "can_use_opus47": is_superadmin(user) or is_paid_user(user),
         "user": user,
     }
 
@@ -1665,7 +1810,7 @@ def auth_payload(user: dict | None) -> dict:
 def list_users(connection: sqlite3.Connection) -> list[dict]:
     rows = connection.execute(
         """
-        SELECT id, username, email, role, is_active, created_at
+        SELECT id, username, email, role, is_active, COALESCE(is_paid, 0) AS is_paid, created_at
         FROM users
         ORDER BY role DESC, id ASC
         """
@@ -1995,7 +2140,7 @@ def index(request: Request) -> HTMLResponse:
         request=request,
         name="index.html",
         context={
-            "models": sorted(SUPPORTED_MODELS),
+            "models": MODEL_OPTIONS,
             "default_model": DEFAULT_MODEL,
             "default_admin_accounts": [
                 {"username": "admin", "password": "admin123456"},
@@ -2008,7 +2153,7 @@ def index(request: Request) -> HTMLResponse:
 @app.get("/api/models")
 def api_models() -> dict:
     return {
-        "models": sorted(SUPPORTED_MODELS),
+        "models": MODEL_OPTIONS,
         "default_model": DEFAULT_MODEL,
     }
 
@@ -2017,10 +2162,23 @@ def api_models() -> dict:
 def api_keys_status(user_session: str | None = Cookie(default=None)) -> dict:
     with closing(get_connection()) as connection:
         require_superadmin(connection, user_session)
-        total_keys = connection.execute("SELECT COUNT(*) AS count FROM api_keys").fetchone()["count"]
+        default_total_keys = get_api_key_count(connection, KEY_POOL_DEFAULT)
+        opus47_total_keys = get_api_key_count(connection, KEY_POOL_OPUS47)
     return {
         "source_url": DEFAULT_KEY_SOURCE_URL,
-        "total_keys": total_keys,
+        "total_keys": default_total_keys,
+        "opus47_source_url": OPUS47_KEY_SOURCE_URL,
+        "opus47_total_keys": opus47_total_keys,
+        "pools": {
+            KEY_POOL_DEFAULT: {
+                "source_url": DEFAULT_KEY_SOURCE_URL,
+                "total_keys": default_total_keys,
+            },
+            KEY_POOL_OPUS47: {
+                "source_url": OPUS47_KEY_SOURCE_URL,
+                "total_keys": opus47_total_keys,
+            },
+        },
     }
 
 
@@ -2028,7 +2186,14 @@ def api_keys_status(user_session: str | None = Cookie(default=None)) -> dict:
 def api_import_keys(user_session: str | None = Cookie(default=None)) -> dict:
     with closing(get_connection()) as connection:
         require_superadmin(connection, user_session)
-        return import_api_keys_from_url(connection, DEFAULT_KEY_SOURCE_URL)
+        return import_api_keys_from_url(connection, DEFAULT_KEY_SOURCE_URL, KEY_POOL_DEFAULT)
+
+
+@app.post("/api/keys/opus47/import")
+def api_import_opus47_keys(user_session: str | None = Cookie(default=None)) -> dict:
+    with closing(get_connection()) as connection:
+        require_superadmin(connection, user_session)
+        return import_api_keys_from_url(connection, OPUS47_KEY_SOURCE_URL, KEY_POOL_OPUS47)
 
 
 @app.get("/api/auth/me")
@@ -2124,7 +2289,7 @@ def api_login(payload: LoginRequest, response: Response) -> dict:
     with closing(get_connection()) as connection:
         row = connection.execute(
             """
-            SELECT id, username, email, role, password_hash, salt, is_active
+            SELECT id, username, email, role, password_hash, salt, is_active, COALESCE(is_paid, 0) AS is_paid
             FROM users
             WHERE username = ? OR email = ?
             LIMIT 1
@@ -2154,6 +2319,7 @@ def api_login(payload: LoginRequest, response: Response) -> dict:
             "username": row["username"],
             "email": row["email"],
             "role": normalize_role(row["role"]),
+            "is_paid": bool(row["is_paid"]),
         },
     }
 
@@ -2342,7 +2508,8 @@ def api_create_session(payload: CreateSessionRequest, user_session: str | None =
     session_id = str(uuid.uuid4())
     with closing(get_connection()) as connection:
         user = require_user(connection, user_session)
-        create_session_record(connection, session_id, user["id"], payload.model)
+        model = validate_requested_model(user, payload.model)
+        create_session_record(connection, session_id, user["id"], model)
         session = get_session(connection, session_id, user["id"])
     return dict(session)
 
@@ -2436,6 +2603,7 @@ def api_resend_message(
 
     with closing(get_connection()) as connection:
         user = require_user(connection, user_session)
+        model = validate_requested_model(user, payload.model)
         target_message = get_message(connection, session_id, user["id"], message_id)
         if target_message is None:
             raise HTTPException(status_code=404, detail="Message not found")
@@ -2451,7 +2619,7 @@ def api_resend_message(
             message_text=message_text,
             images=[],
             files=[],
-            model=payload.model,
+            model=model,
             replace_from_message_id=message_id,
         )
 
@@ -2472,6 +2640,7 @@ def api_chat(payload: ChatRequest, user_session: str | None = Cookie(default=Non
 
     with closing(get_connection()) as connection:
         user = require_user(connection, user_session)
+        model = validate_requested_model(user, payload.model)
         session, messages, assistant_text = send_and_persist_reply(
             connection=connection,
             session_id=payload.session_id,
@@ -2479,7 +2648,7 @@ def api_chat(payload: ChatRequest, user_session: str | None = Cookie(default=Non
             message_text=message_text,
             images=images,
             files=files,
-            model=payload.model,
+            model=model,
         )
 
     return {
@@ -2499,6 +2668,7 @@ def api_chat_stream(payload: ChatRequest, user_session: str | None = Cookie(defa
 
     with closing(get_connection()) as connection:
         user = require_user(connection, user_session)
+        requested_model = validate_requested_model(user, payload.model)
         removed_suffix: list[dict] = []
         replace_from_message_id = payload.replace_from_message_id
 
@@ -2523,7 +2693,7 @@ def api_chat_stream(payload: ChatRequest, user_session: str | None = Cookie(defa
             ]
             delete_messages_from(connection, payload.session_id, user["id"], replace_from_message_id)
         elif not session_exists(connection, payload.session_id, user["id"]):
-            create_session_record(connection, payload.session_id, user["id"], payload.model)
+            create_session_record(connection, payload.session_id, user["id"], requested_model)
 
         current_session = get_session(connection, payload.session_id, user["id"])
         history_before = get_messages(connection, payload.session_id, user["id"], include_file_content=True)
@@ -2545,11 +2715,12 @@ def api_chat_stream(payload: ChatRequest, user_session: str | None = Cookie(defa
             [*history_before, {"role": "user", "content": message_text, "images": images, "files": files}]
         )
         session = get_session(connection, payload.session_id, user["id"])
-        retry_limit = max(1, min(get_api_key_count(connection), 50))
+        key_pool = get_key_pool_name_for_model(requested_model)
+        retry_limit = max(1, min(get_api_key_count(connection, key_pool), 50))
 
     def event_stream():
         assistant_parts: list[str] = []
-        response_model = normalize_model(payload.model)
+        response_model = requested_model
 
         try:
             yield sse_event(
@@ -2575,7 +2746,7 @@ def api_chat_stream(payload: ChatRequest, user_session: str | None = Cookie(defa
             stream_completed = False
             for _ in range(retry_limit):
                 with closing(get_connection()) as key_connection:
-                    key_record = ensure_user_api_key(key_connection, user["id"])
+                    key_record = ensure_user_api_key(key_connection, user["id"], key_pool)
 
                 key_id = int(key_record["id"])
                 if key_id in attempted_key_ids:
@@ -2586,7 +2757,7 @@ def api_chat_stream(payload: ChatRequest, user_session: str | None = Cookie(defa
                 try:
                     for chunk in iter_stream_chat(
                         messages=request_messages,
-                        model=payload.model,
+                        model=requested_model,
                         session_id=payload.session_id,
                         api_key=key_record["api_key"],
                     ):
@@ -2603,7 +2774,7 @@ def api_chat_stream(payload: ChatRequest, user_session: str | None = Cookie(defa
                     if emitted_text or not is_api_key_quota_error(exc):
                         raise
                     with closing(get_connection()) as rotate_connection:
-                        advance_user_api_key(rotate_connection, user["id"], key_id)
+                        advance_user_api_key(rotate_connection, user["id"], key_id, key_pool)
 
             if not stream_completed:
                 if last_exc is not None:
