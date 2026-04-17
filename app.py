@@ -9,6 +9,7 @@ import secrets
 import smtplib
 import sqlite3
 import uuid
+import zipfile
 from contextlib import closing
 from datetime import datetime, timedelta
 from email.utils import formataddr
@@ -26,6 +27,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pypdf import PdfReader
 from pydantic import BaseModel, EmailStr, Field
+from pypdf.errors import PdfReadError
 
 from uuapi_client import (
     DEFAULT_MODEL,
@@ -402,8 +404,25 @@ def decode_text_file_bytes(file_bytes: bytes) -> str:
     return file_bytes.decode("utf-8", errors="replace")
 
 
+def try_decode_text_file_bytes(file_bytes: bytes) -> str | None:
+    for encoding in ("utf-8-sig", "utf-8", "gb18030", "gbk"):
+        try:
+            text = file_bytes.decode(encoding).strip()
+        except UnicodeDecodeError:
+            continue
+        if text:
+            return text
+    return None
+
+
 def extract_docx_text(file_bytes: bytes) -> str:
-    document = DocxDocument(BytesIO(file_bytes))
+    try:
+        document = DocxDocument(BytesIO(file_bytes))
+    except (zipfile.BadZipFile, ValueError) as exc:
+        raise HTTPException(
+            status_code=400,
+            detail="DOCX parse failed: the uploaded file is not a valid .docx document",
+        ) from exc
     blocks: list[str] = []
     for paragraph in document.paragraphs:
         text = paragraph.text.strip()
@@ -418,7 +437,13 @@ def extract_docx_text(file_bytes: bytes) -> str:
 
 
 def extract_pdf_text(file_bytes: bytes) -> str:
-    reader = PdfReader(BytesIO(file_bytes))
+    try:
+        reader = PdfReader(BytesIO(file_bytes))
+    except (PdfReadError, ValueError) as exc:
+        raise HTTPException(
+            status_code=400,
+            detail="PDF parse failed: the uploaded file is not a valid PDF document",
+        ) from exc
     pages: list[str] = []
     for index, page in enumerate(reader.pages, start=1):
         page_text = (page.extract_text() or "").strip()
@@ -435,7 +460,13 @@ def parse_uploaded_file(file_payload: dict[str, str]) -> tuple[str, str]:
     if media_type == "application/pdf":
         return extract_pdf_text(file_bytes).strip(), "pypdf"
     if media_type == "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
-        return extract_docx_text(file_bytes).strip(), "python-docx"
+        try:
+            return extract_docx_text(file_bytes).strip(), "python-docx"
+        except HTTPException as exc:
+            fallback_text = try_decode_text_file_bytes(file_bytes)
+            if fallback_text:
+                return fallback_text, "text-fallback"
+            raise exc
     raise HTTPException(status_code=400, detail="Unsupported file format")
 
 

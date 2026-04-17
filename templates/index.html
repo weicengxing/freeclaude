@@ -1,821 +1,10 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>UUAPI Chat</title>
-    <style>
-        :root {
-            color-scheme: light;
-            --bg: #f3f4f6;
-            --panel: rgba(255, 255, 255, 0.94);
-            --panel-soft: #f8fafc;
-            --line: #d7deea;
-            --text: #172033;
-            --muted: #667085;
-            --accent: #0f766e;
-            --accent-strong: #115e59;
-            --danger: #dc2626;
-            --danger-soft: #fee2e2;
-        }
-
-        * { box-sizing: border-box; }
-
-        body {
-            margin: 0;
-            min-height: 100vh;
-            font-family: "Segoe UI", "PingFang SC", sans-serif;
-            color: var(--text);
-            background:
-                radial-gradient(circle at top left, rgba(15, 118, 110, 0.16), transparent 28%),
-                linear-gradient(135deg, #eef2ff 0%, #f8fafc 100%);
-        }
-
-        button, input, select, textarea { font: inherit; }
-        button { cursor: pointer; }
-        .hidden { display: none !important; }
-
-        .shell {
-            display: grid;
-            grid-template-columns: 340px 1fr;
-            min-height: 100vh;
-        }
-
-        .sidebar,
-        .panel,
-        .auth-card,
-        .admin-card {
-            background: var(--panel);
-            backdrop-filter: blur(12px);
-            border: 1px solid rgba(215, 222, 234, 0.92);
-            box-shadow: 0 18px 50px rgba(15, 23, 42, 0.08);
-        }
-
-        .sidebar {
-            padding: 20px;
-            display: flex;
-            flex-direction: column;
-            gap: 18px;
-        }
-
-        .panel {
-            padding: 20px;
-            display: flex;
-            flex-direction: column;
-            gap: 18px;
-            min-width: 0;
-            min-height: 100vh;
-        }
-
-        .key-tools {
-            display: flex;
-            flex-direction: column;
-            gap: 10px;
-            padding: 12px;
-            border: 1px solid var(--line);
-            border-radius: 16px;
-            background: var(--panel-soft);
-        }
-
-        .sidebar-secondary-btn {
-            width: 100%;
-            background: white;
-            border: 1px solid var(--line);
-            color: var(--text);
-            padding: 10px 12px;
-            border-radius: 12px;
-            text-align: left;
-        }
-
-        .sidebar-secondary-btn:hover:not(:disabled) {
-            background: #f8fafc;
-        }
-
-        .sidebar-secondary-btn:disabled {
-            cursor: not-allowed;
-            opacity: 0.65;
-        }
-
-        .key-meta {
-            font-size: 12px;
-            color: var(--muted);
-            line-height: 1.5;
-            word-break: break-word;
-        }
-
-        .custom-select {
-            position: relative;
-        }
-
-        .custom-select-button {
-            width: 100%;
-            padding: 13px 46px 13px 15px;
-            background: var(--select-bg);
-            border: 1px solid var(--select-border);
-            color: white;
-            border-radius: 13px;
-            font-family: inherit;
-            font-size: 1rem;
-            font-weight: 600;
-            box-shadow: inset 0 1px 0 rgba(255,255,255,0.06), 0 10px 24px var(--select-shadow);
-            transition: transform 0.18s ease, box-shadow 0.2s ease, border-color 0.2s ease;
-            text-align: left;
-            cursor: pointer;
-            position: relative;
-        }
-
-        .custom-select-button::after {
-            content: "";
-            position: absolute;
-            right: 20px;
-            top: 50%;
-            width: 11px;
-            height: 11px;
-            border-right: 2px solid rgba(255, 255, 255, 0.92);
-            border-bottom: 2px solid rgba(255, 255, 255, 0.92);
-            transform: translateY(-70%) rotate(45deg);
-            transition: transform 0.2s ease;
-        }
-
-        .custom-select.open .custom-select-button::after {
-            transform: translateY(-25%) rotate(225deg);
-        }
-
-        .custom-select-button:hover {
-            border-color: rgba(196, 181, 253, 0.82);
-            transform: translateY(-1px);
-        }
-
-        .custom-select-button:focus {
-            outline: none;
-            border-color: rgba(196, 181, 253, 0.96);
-            box-shadow: 0 0 0 5px var(--select-ring), inset 0 1px 0 rgba(255,255,255,0.05), 0 14px 28px rgba(0,0,0,0.28);
-        }
-
-        .custom-select-menu {
-            position: absolute;
-            top: calc(100% + 10px);
-            left: 0;
-            right: 0;
-            background: #2b2d38;
-            border: 1px solid rgba(167, 139, 250, 0.35);
-            border-radius: 14px;
-            padding: 8px;
-            box-shadow: 0 18px 40px rgba(0, 0, 0, 0.38);
-            display: none;
-            z-index: 20;
-        }
-
-        .custom-select.open .custom-select-menu {
-            display: block;
-        }
-
-        .custom-select-option {
-            width: 100%;
-            border: none;
-            background: transparent;
-            color: #f5f7fb;
-            text-align: left;
-            border-radius: 10px;
-            padding: 12px 14px;
-            font-size: 0.98rem;
-            font-weight: 600;
-            cursor: pointer;
-            transition: background 0.18s ease, color 0.18s ease;
-        }
-
-        .custom-select-option:hover,
-        .custom-select-option.active {
-            background: linear-gradient(90deg, rgba(139, 92, 246, 0.22), rgba(59, 130, 246, 0.14));
-            color: white;
-        }
-
-        .session-list {
-            flex: 1;
-            overflow-y: auto;
-            padding: 12px;
-            display: flex;
-            flex-direction: column;
-            gap: 4px;
-        }
-
-        .session-item {
-            background: transparent;
-            border: none;
-            color: #d1d5db;
-            text-align: left;
-            padding: 12px;
-            border-radius: 8px;
-            cursor: pointer;
-            transition: background 0.2s;
-            display: flex;
-            flex-direction: column;
-            gap: 4px;
-        }
-
-        .session-item:hover {
-            background-color: var(--sidebar-hover);
-        }
-
-        .session-item.active {
-            background-color: var(--sidebar-hover);
-            color: white;
-        }
-
-        .session-title {
-            font-weight: 500;
-            font-size: 0.95rem;
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
-        }
-
-        .session-meta {
-            font-size: 0.75rem;
-            color: #9ca3af;
-        }
-
-        .brand h1,
-        .session-title {
-            margin: 0;
-            font-weight: 700;
-        }
-
-        .brand h1 {
-            font-size: 28px;
-        }
-
-        .helper,
-        .meta-text,
-        .status-text {
-            color: var(--muted);
-            font-size: 13px;
-            line-height: 1.5;
-        }
-
-        .nav-group {
-            display: grid;
-            gap: 8px;
-        }
-
-        .nav-btn {
-            width: 100%;
-            border: 1px solid var(--line);
-            background: #f8fafc;
-            color: var(--text);
-            border-radius: 14px;
-            padding: 12px 14px;
-            text-align: left;
-            font-weight: 600;
-        }
-
-        .nav-btn.active {
-            background: var(--accent);
-            border-color: var(--accent);
-            color: white;
-        }
-
-        .toolbar,
-        .header-row,
-        .session-row,
-        .composer-row,
-        .auth-actions,
-        .tab-row,
-        .message-top {
-            display: flex;
-            gap: 10px;
-            align-items: center;
-        }
-
-        .toolbar,
-        .header-row,
-        .composer-row,
-        .message-top {
-            justify-content: space-between;
-        }
-
-        .primary-btn,
-        .secondary-btn,
-        .danger-btn,
-        .ghost-btn,
-        .message-btn {
-            border-radius: 12px;
-            border: 1px solid transparent;
-            padding: 10px 14px;
-            transition: 0.18s ease;
-            background: white;
-        }
-
-        .primary-btn {
-            background: var(--accent);
-            color: white;
-        }
-
-        .primary-btn:hover { background: var(--accent-strong); }
-
-        .secondary-btn,
-        .ghost-btn,
-        .message-btn {
-            border-color: var(--line);
-            color: var(--text);
-        }
-
-        .danger-btn,
-        .message-btn.danger {
-            border-color: #fecaca;
-            color: var(--danger);
-        }
-
-        .danger-btn:hover,
-        .message-btn.danger:hover {
-            background: var(--danger-soft);
-        }
-
-        input,
-        select,
-        textarea {
-            width: 100%;
-            border: 1px solid var(--line);
-            border-radius: 12px;
-            padding: 11px 12px;
-            background: white;
-            color: var(--text);
-        }
-
-        textarea {
-            min-height: 110px;
-            resize: vertical;
-        }
-
-        .session-list,
-        .messages,
-        .admin-list {
-            overflow-y: auto;
-            min-height: 0;
-        }
-
-        .session-list,
-        .admin-list {
-            display: flex;
-            flex-direction: column;
-            gap: 10px;
-        }
-
-        .session-card {
-            width: 100%;
-            padding: 12px;
-            border-radius: 14px;
-            border: 1px solid var(--line);
-            background: var(--panel-soft);
-            text-align: left;
-        }
-
-        .session-card.active {
-            border-color: #14b8a6;
-            background: white;
-        }
-
-        .messages {
-            padding: 6px 2px;
-        }
-
-        .main-view {
-            display: grid;
-            gap: 18px;
-            min-height: 0;
-            flex: 1;
-        }
-
-        .chat-view {
-            grid-template-rows: auto 1fr auto;
-        }
-
-        .db-view {
-            grid-template-rows: auto 1fr;
-        }
-
-        .page-card {
-            border: 1px solid var(--line);
-            border-radius: 18px;
-            background: rgba(255, 255, 255, 0.9);
-            padding: 18px;
-        }
-
-        .db-page-shell {
-            display: grid;
-            grid-template-columns: 220px minmax(0, 1fr);
-            gap: 16px;
-            min-height: 0;
-            align-items: start;
-        }
-
-        .db-side-panel {
-            display: grid;
-            gap: 10px;
-            align-content: start;
-        }
-
-        .db-main-panel {
-            display: grid;
-            gap: 12px;
-            grid-template-rows: auto minmax(260px, 1fr);
-            align-content: start;
-            min-width: 0;
-            min-height: 0;
-        }
-
-        .db-header-card {
-            padding: 14px 16px;
-        }
-
-        .db-header-card .meta-text {
-            margin-top: 2px;
-        }
-
-        .message {
-            max-width: 860px;
-            padding: 16px;
-            border-radius: 18px;
-            margin-bottom: 14px;
-            line-height: 1.6;
-        }
-
-        .message.user {
-            margin-left: auto;
-            background: #dff7f3;
-        }
-
-        .message.assistant {
-            background: #f8fafc;
-            border: 1px solid #e2e8f0;
-        }
-
-        .message-role {
-            font-size: 12px;
-            color: var(--muted);
-            text-transform: uppercase;
-            letter-spacing: 0.08em;
-        }
-
-        .message-actions {
-            display: flex;
-            gap: 8px;
-            flex-wrap: wrap;
-        }
-
-        .auth-overlay,
-        .admin-overlay,
-        .db-modal-overlay {
-            position: fixed;
-            inset: 0;
-            background: rgba(15, 23, 42, 0.42);
-            display: grid;
-            place-items: center;
-            padding: 20px;
-        }
-
-        .auth-card {
-            width: min(540px, 100%);
-            border-radius: 24px;
-            padding: 24px;
-        }
-
-        .admin-card {
-            width: min(900px, 100%);
-            max-height: 80vh;
-            overflow: auto;
-            border-radius: 24px;
-            padding: 24px;
-        }
-
-        .db-modal-card {
-            width: min(880px, calc(100vw - 40px));
-            max-height: 84vh;
-            overflow: auto;
-            border-radius: 24px;
-            padding: 22px;
-            background: var(--panel);
-            border: 1px solid rgba(215, 222, 234, 0.92);
-            box-shadow: 0 18px 50px rgba(15, 23, 42, 0.08);
-            backdrop-filter: blur(12px);
-            display: grid;
-            gap: 16px;
-        }
-
-        .db-modal-grid {
-            display: grid;
-            grid-template-columns: repeat(2, minmax(0, 1fr));
-            gap: 14px;
-        }
-
-        .db-modal-field {
-            display: grid;
-            gap: 6px;
-        }
-
-        .db-modal-field label {
-            font-size: 12px;
-            color: var(--muted);
-        }
-
-        .db-modal-field input,
-        .db-modal-field textarea {
-            background: white;
-        }
-
-        .db-modal-field input[readonly],
-        .db-modal-field textarea[readonly] {
-            background: #f8fafc;
-            color: var(--muted);
-            cursor: not-allowed;
-        }
-
-        .db-modal-field textarea {
-            min-height: 88px;
-        }
-
-        .db-modal-actions {
-            display: flex;
-            justify-content: flex-end;
-            gap: 10px;
-            flex-wrap: wrap;
-        }
-
-        .tab-row {
-            margin-bottom: 16px;
-        }
-
-        .tab-btn {
-            flex: 1;
-            border-radius: 12px;
-            border: 1px solid var(--line);
-            background: #f8fafc;
-            padding: 11px 12px;
-        }
-
-        .tab-btn.active {
-            background: var(--accent);
-            color: white;
-            border-color: var(--accent);
-        }
-
-        .form-grid {
-            display: grid;
-            gap: 12px;
-        }
-
-        .inline-grid {
-            display: grid;
-            grid-template-columns: 1fr auto;
-            gap: 10px;
-        }
-
-        .admin-user-card {
-            border: 1px solid var(--line);
-            border-radius: 16px;
-            padding: 14px;
-            background: #f8fafc;
-            display: grid;
-            grid-template-columns: 1fr auto;
-            gap: 12px;
-            align-items: center;
-        }
-
-        .admin-user-meta {
-            color: var(--muted);
-            font-size: 13px;
-            line-height: 1.6;
-        }
-
-        .admin-tabs {
-            display: flex;
-            gap: 10px;
-            margin: 16px 0;
-        }
-
-        .admin-tab-btn {
-            border-radius: 12px;
-            border: 1px solid var(--line);
-            background: #f8fafc;
-            padding: 10px 14px;
-            cursor: pointer;
-        }
-
-        .admin-tab-btn.active {
-            background: var(--accent);
-            color: white;
-            border-color: var(--accent);
-        }
-
-        .admin-panel {
-            display: grid;
-            gap: 14px;
-        }
-
-        .admin-db-toolbar {
-            display: grid;
-            grid-template-columns: minmax(0, 1fr) auto;
-            gap: 10px;
-            align-items: center;
-            padding: 10px 12px;
-            align-self: start;
-        }
-
-        .admin-db-filters {
-            display: grid;
-            grid-template-columns: minmax(260px, 440px) auto auto;
-            gap: 10px;
-            align-items: center;
-        }
-
-        .admin-db-actions {
-            display: flex;
-            gap: 10px;
-            justify-content: flex-end;
-            flex-wrap: wrap;
-        }
-
-        .compact-card {
-            padding: 12px 14px;
-        }
-
-        .admin-db-toolbar-meta {
-            grid-column: 1 / -1;
-            min-height: 18px;
-            font-size: 12px;
-            color: var(--muted);
-        }
-
-        .admin-db-layout {
-            display: grid;
-            grid-template-columns: 220px 1fr;
-            gap: 16px;
-            min-height: 420px;
-        }
-
-        .admin-db-tables {
-            border: 1px solid var(--line);
-            border-radius: 16px;
-            background: #f8fafc;
-            padding: 8px;
-            display: flex;
-            flex-direction: column;
-            gap: 6px;
-            overflow: auto;
-            max-height: 68vh;
-        }
-
-        .admin-db-table-btn {
-            border: 1px solid var(--line);
-            background: white;
-            border-radius: 10px;
-            padding: 9px 10px;
-            text-align: left;
-            cursor: pointer;
-        }
-
-        .admin-db-table-btn.active {
-            border-color: #14b8a6;
-            background: #ecfeff;
-        }
-
-        .admin-db-content {
-            display: grid;
-            gap: 14px;
-            min-width: 0;
-        }
-
-        .admin-db-rows {
-            display: grid;
-            gap: 10px;
-            min-height: 320px;
-        }
-
-        .admin-db-table-wrap {
-            border: 1px solid var(--line);
-            border-radius: 16px;
-            background: white;
-            overflow: auto;
-            min-height: 320px;
-        }
-
-        .admin-db-table-grid {
-            width: 100%;
-            border-collapse: collapse;
-            font-size: 13px;
-        }
-
-        .admin-db-table-grid th,
-        .admin-db-table-grid td {
-            border-bottom: 1px solid #e5e7eb;
-            padding: 10px 12px;
-            text-align: left;
-            vertical-align: top;
-            white-space: nowrap;
-            max-width: 220px;
-            overflow: hidden;
-            text-overflow: ellipsis;
-        }
-
-        .admin-db-table-grid thead th {
-            position: sticky;
-            top: 0;
-            background: #f8fafc;
-            z-index: 1;
-        }
-
-        .admin-db-table-grid tr.active {
-            background: #ecfeff;
-        }
-
-        .admin-db-table-grid td.actions {
-            white-space: nowrap;
-        }
-
-        .table-action-btn {
-            border: none;
-            border-radius: 8px;
-            padding: 6px 10px;
-            color: white;
-            font-size: 12px;
-            margin-right: 6px;
-        }
-
-        .table-action-btn.view { background: #3b82f6; }
-        .table-action-btn.edit { background: #f59e0b; }
-        .table-action-btn.delete { background: #ef4444; }
-
-        .empty-state {
-            min-height: 220px;
-            display: grid;
-            place-items: center;
-            color: var(--muted);
-            font-size: 13px;
-            border: 1px dashed var(--line);
-            border-radius: 16px;
-            background: rgba(248, 250, 252, 0.7);
-        }
-
-        .message-file-list,
-        .composer-file-list {
-            display: grid;
-            gap: 12px;
-            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-            margin-bottom: 10px;
-        }
-
-        .message-file-card,
-        .composer-file-card {
-            display: grid;
-            gap: 8px;
-            padding: 12px;
-            border-radius: 16px;
-            border: 1px solid var(--line);
-            background: white;
-        }
-
-        .file-badge {
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            width: fit-content;
-            min-width: 52px;
-            padding: 4px 8px;
-            border-radius: 999px;
-            background: rgba(15, 118, 110, 0.12);
-            color: var(--accent-strong);
-            font-size: 12px;
-            font-weight: 700;
-            letter-spacing: 0.04em;
-            text-transform: uppercase;
-        }
-
-        .file-name {
-            font-weight: 600;
-            word-break: break-word;
-        }
-
-        .file-meta {
-            color: var(--muted);
-            font-size: 12px;
-            line-height: 1.5;
-            word-break: break-word;
-        }
-
-        @media (max-width: 980px) {
-            .shell { grid-template-columns: 1fr; }
-            .panel { margin: 0; border-radius: 0; min-height: 70vh; }
-            .sidebar { border-radius: 0; }
-            .admin-user-card { grid-template-columns: 1fr; }
-            .admin-db-layout { grid-template-columns: 1fr; }
-            .db-page-shell { grid-template-columns: 1fr; }
-            .admin-db-toolbar { grid-template-columns: 1fr; }
-            .admin-db-filters { grid-template-columns: 1fr; }
-            .admin-db-actions { justify-content: flex-start; }
-            .db-modal-grid { grid-template-columns: 1fr; }
-        }
-    </style>
-    <link rel="stylesheet" href="/static/app.css?v=20260417">
+    <link rel="stylesheet" href="/static/app.css?v=20260417c">
 </head>
 <body>
     <div class="shell">
@@ -868,6 +57,7 @@
                 <form id="chat-form" class="composer">
                     <textarea id="message-input" placeholder="输入你的问题，按 Ctrl+Enter 发送"></textarea>
                     <input id="image-input" class="hidden" type="file" accept="image/jpeg,image/png,image/webp,image/gif,text/plain,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,.txt,.pdf,.docx" multiple>
+                    <div id="composer-drop-hint" class="helper composer-drop-hint">也可以直接把图片、TXT、DOCX、PDF 拖到这里，或者直接粘贴附件</div>
                     <div id="composer-image-preview" class="composer-image-preview hidden">
                         <div id="composer-image-list" class="composer-image-list"></div>
                         <div class="composer-image-meta">
@@ -1045,6 +235,7 @@
         const chatTitleEl = document.getElementById("chat-title");
         const chatSubtitleEl = document.getElementById("chat-subtitle");
         const modelSelectEl = document.getElementById("model-select");
+        const chatFormEl = document.getElementById("chat-form");
         const messageInputEl = document.getElementById("message-input");
         const imageInputEl = document.getElementById("image-input");
         const attachImageBtnEl = document.getElementById("attach-image-btn");
@@ -1089,7 +280,6 @@
         const adminStatusEl = document.getElementById("admin-status");
         const adminStatusOverlayEl = document.getElementById("admin-status-overlay");
         const adminUserListEl = document.getElementById("admin-user-list");
-        const adminUsersPanelEl = document.getElementById("admin-users-panel");
         const adminDbTablesEl = document.getElementById("admin-db-tables");
         const adminDbRowsEl = document.getElementById("admin-db-rows");
         const SUPPORTED_IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/webp", "image/gif"]);
@@ -1105,6 +295,7 @@
         };
         const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
         const MAX_DOCUMENT_BYTES = 10 * 1024 * 1024;
+        let composerDragDepth = 0;
 
         function uid() {
             return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
@@ -1212,7 +403,6 @@
                         <div class="message-file-card">
                             <span class="file-badge">${getFileTypeLabel(file)}</span>
                             <div class="file-name">${escapeHtml(file.name || "附件")}</div>
-                            <div class="file-meta">已解析后发送给 AI${file.parsed_char_count ? ` · ${file.parsed_char_count} chars` : ""}</div>
                         </div>
                     `).join("")}
                 </div>
@@ -1248,6 +438,54 @@
             }));
         }
 
+        function isSupportedAttachmentFile(file) {
+            if (!file) {
+                return false;
+            }
+            if (SUPPORTED_IMAGE_TYPES.has(file.type)) {
+                return true;
+            }
+            return SUPPORTED_DOCUMENT_TYPES.has(normalizeDocumentType(file));
+        }
+
+        function extractSupportedFilesFromDataTransfer(dataTransfer) {
+            if (!dataTransfer) {
+                return [];
+            }
+            const files = [
+                ...Array.from(dataTransfer.files || []),
+                ...Array.from(dataTransfer.items || [])
+                    .filter((item) => item.kind === "file")
+                    .map((item) => item.getAsFile())
+                    .filter(Boolean),
+            ];
+            const seen = new Set();
+            return files.filter((file) => {
+                if (!isSupportedAttachmentFile(file)) {
+                    return false;
+                }
+                const key = `${file.name || ""}:${file.type || ""}:${file.size || 0}:${file.lastModified || 0}`;
+                if (seen.has(key)) {
+                    return false;
+                }
+                seen.add(key);
+                return true;
+            });
+        }
+
+        function setComposerDragActive(active) {
+            chatFormEl.classList.toggle("drag-active", Boolean(active));
+        }
+
+        async function addAttachmentsFromFiles(files, successPrefix = "已添加") {
+            const added = await handleAttachmentFiles(files);
+            const parts = [];
+            if (added.images.length) parts.push(`图片 ${added.images.length} 张`);
+            if (added.files.length) parts.push(`文件 ${added.files.length} 个`);
+            setStatus(`${successPrefix}${parts.join("，")}`);
+            return added;
+        }
+
         function buildMessageImagesHtml(message) {
             const images = getMessageImages(message);
             if (!images.length) {
@@ -1264,22 +502,6 @@
             `;
         }
 
-        function buildMessageHtml(message) {
-            const images = getMessageImages(message);
-            return `
-                <div class="message ${message.role}" data-message-id="${message.id}">
-                    <div class="message-top">
-                        <div class="message-role">${message.role === "user" ? "用户" : "AI"}</div>
-                        <div class="message-actions">
-                            ${message.role === "user" && !message.image ? `<button class="message-btn" type="button" data-edit-message="${message.id}">编辑后重发</button>` : ""}
-                            <button class="message-btn danger" type="button" data-delete-message="${message.id}">从此删除</button>
-                        </div>
-                    </div>
-                    ${message.image ? `<div class="message-image"><img class="zoomable-image" data-preview-src="${buildImageDataUrl(message.image)}" src="${buildImageDataUrl(message.image)}" alt="${escapeHtml(message.image.name || "上传图片")}"></div>` : ""}
-                    <div class="message-content ${message.content ? "" : "hidden"}" data-message-content="${message.id}">${message.content ? formatMessageContent(message) : ""}</div>
-                </div>
-            `;
-        }
 
         function bindMessageEvents(scope = messagesEl) {
             scope.querySelectorAll("[data-delete-message]").forEach((button) => {
@@ -1327,70 +549,6 @@
             return `data:${image.media_type};base64,${image.data}`;
         }
 
-        function renderComposerImage() {
-            const image = state.selectedImage;
-            composerImagePreviewEl.classList.toggle("hidden", !image);
-            removeImageBtnEl.disabled = !image || state.sending || !state.auth?.authenticated;
-            if (!image) {
-                composerImagePreviewImgEl.removeAttribute("src");
-                delete composerImagePreviewImgEl.dataset.previewSrc;
-                composerImageNameEl.textContent = "";
-                return;
-            }
-            composerImagePreviewImgEl.src = image.preview_url || buildImageDataUrl(image);
-            composerImagePreviewImgEl.dataset.previewSrc = image.preview_url || buildImageDataUrl(image);
-            composerImageNameEl.textContent = image.name || "已选择图片";
-        }
-
-        function clearSelectedImage() {
-            state.selectedImage = null;
-            imageInputEl.value = "";
-            renderComposerImage();
-        }
-
-        function normalizeImageForRequest(image) {
-            if (!image) {
-                return null;
-            }
-            return {
-                name: image.name || null,
-                media_type: image.media_type,
-                data: image.data,
-            };
-        }
-
-        async function handleImageFile(file) {
-            if (!file) {
-                return;
-            }
-            if (!SUPPORTED_IMAGE_TYPES.has(file.type)) {
-                throw new Error("仅支持 JPG、PNG、WEBP、GIF 图片");
-            }
-            if (file.size > MAX_IMAGE_BYTES) {
-                throw new Error("图片不能超过 5 MB");
-            }
-
-            const dataUrl = await new Promise((resolve, reject) => {
-                const reader = new FileReader();
-                reader.onload = () => resolve(reader.result);
-                reader.onerror = () => reject(new Error("读取图片失败"));
-                reader.readAsDataURL(file);
-            });
-
-            const dataUrlText = String(dataUrl || "");
-            const commaIndex = dataUrlText.indexOf(",");
-            if (commaIndex < 0) {
-                throw new Error("图片编码失败");
-            }
-
-            state.selectedImage = {
-                name: file.name,
-                media_type: file.type,
-                data: dataUrlText.slice(commaIndex + 1),
-                preview_url: dataUrlText,
-            };
-            renderComposerImage();
-        }
 
         function applyAuth(auth) {
             state.auth = auth;
@@ -1536,53 +694,6 @@
             }));
         }
 
-        async function handleImageFile(file) {
-            if (!file) {
-                return null;
-            }
-            if (!SUPPORTED_IMAGE_TYPES.has(file.type)) {
-                throw new Error("浠呮敮鎸?JPG銆丳NG銆乄EBP銆丟IF 鍥剧墖");
-            }
-            if (file.size > MAX_IMAGE_BYTES) {
-                throw new Error("鍥剧墖涓嶈兘瓒呰繃 5 MB");
-            }
-
-            const dataUrl = await new Promise((resolve, reject) => {
-                const reader = new FileReader();
-                reader.onload = () => resolve(reader.result);
-                reader.onerror = () => reject(new Error("璇诲彇鍥剧墖澶辫触"));
-                reader.readAsDataURL(file);
-            });
-
-            const dataUrlText = String(dataUrl || "");
-            const commaIndex = dataUrlText.indexOf(",");
-            if (commaIndex < 0) {
-                throw new Error("鍥剧墖缂栫爜澶辫触");
-            }
-
-            const image = {
-                name: file.name,
-                media_type: file.type,
-                data: dataUrlText.slice(commaIndex + 1),
-                preview_url: dataUrlText,
-            };
-            state.selectedImages = [...(state.selectedImages || []), image];
-            state.selectedImage = state.selectedImages[0] || image;
-            renderComposerImage();
-            return image;
-        }
-
-        async function handleImageFiles(files) {
-            const addedImages = [];
-            for (const file of Array.from(files || [])) {
-                const image = await handleImageFile(file);
-                if (image) {
-                    addedImages.push(image);
-                }
-            }
-            return addedImages;
-        }
-
         async function handleDocumentFile(file) {
             if (!file) {
                 return null;
@@ -1638,255 +749,6 @@
             return { images: addedImages, files: addedFiles };
         }
 
-        function buildMessageHtml(message) {
-            const images = getMessageImages(message);
-            return `
-                <div class="message ${message.role}" data-message-id="${message.id}">
-                    <div class="message-top">
-                        <div class="message-role">${message.role === "user" ? "鐢ㄦ埛" : "AI"}</div>
-                        <div class="message-actions">
-                            ${message.role === "user" && !images.length ? `<button class="message-btn" type="button" data-edit-message="${message.id}">缂栬緫鍚庨噸鍙?/button>` : ""}
-                            <button class="message-btn danger" type="button" data-delete-message="${message.id}">浠庢鍒犻櫎</button>
-                        </div>
-                    </div>
-                    ${buildMessageImagesHtml({ images })}
-                    <div class="message-content ${message.content ? "" : "hidden"}" data-message-content="${message.id}">${message.content ? formatMessageContent(message) : ""}</div>
-                </div>
-            `;
-        }
-
-        function appendLocalMessage(role, content = "", images = [], files = []) {
-            const normalizedImages = Array.isArray(images) ? cloneImages(images) : (images ? [{ ...images }] : []);
-            const normalizedFiles = Array.isArray(files) ? cloneFiles(files) : [];
-            const nextMessage = {
-                id: uid(),
-                role,
-                content,
-                images: normalizedImages,
-                image: normalizedImages[0] || null,
-                files: normalizedFiles,
-            };
-            state.messages = [...state.messages, nextMessage];
-            if (!messagesEl.querySelector(".message")) {
-                renderMessages();
-                return nextMessage.id;
-            }
-            messagesEl.insertAdjacentHTML("beforeend", buildMessageHtml(nextMessage));
-            const appendedMessage = messagesEl.querySelector(`[data-message-id="${nextMessage.id}"]`);
-            if (appendedMessage) {
-                bindMessageEvents(appendedMessage);
-            }
-            scrollMessagesToBottom();
-            return nextMessage.id;
-        }
-
-        async function editAndResendMessage(message) {
-            if (getMessageImages(message).length) {
-                setStatus("鍥剧墖娑堟伅鏆備笉鏀寔缂栬緫鍚庨噸鍙?");
-                return;
-            }
-            const edited = window.prompt("淇敼鍚庝細浠庤繖閲岄噸鏂扮敓鎴愬悗缁璇濄€?", message.content);
-            if (edited === null) return;
-            const trimmed = edited.trim();
-            if (!trimmed) {
-                setStatus("娑堟伅涓嶈兘涓虹┖");
-                return;
-            }
-            const targetIndex = state.messages.findIndex((item) => item.id === message.id);
-            if (targetIndex < 0) {
-                setStatus("鏈壘鍒拌缂栬緫鐨勬秷鎭?");
-                return;
-            }
-            const previousMessages = state.messages.map((item) => {
-                const images = cloneImages(getMessageImages(item));
-                return {
-                    ...item,
-                    images,
-                    image: images[0] || null,
-                };
-            });
-            const optimisticAssistantId = uid();
-            state.messages = [
-                ...state.messages.slice(0, targetIndex),
-                { ...message, content: trimmed, images: [], image: null },
-                { id: optimisticAssistantId, role: "assistant", content: "", images: [], image: null },
-            ];
-            state.currentAssistantMessageId = optimisticAssistantId;
-            renderMessages();
-            setSending(true);
-            try {
-                const response = await fetch("/api/chat/stream", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({
-                        session_id: state.sessionId,
-                        message: trimmed,
-                        model: modelSelectEl.value,
-                        replace_from_message_id: message.id,
-                    }),
-                });
-
-                if (!response.ok) {
-                    const data = await response.json().catch(() => ({}));
-                    throw new Error(data.detail || "閲嶅彂澶辫触");
-                }
-
-                const reader = response.body.getReader();
-                const decoder = new TextDecoder("utf-8");
-                let buffer = "";
-                let assistantText = "";
-
-                while (true) {
-                    const { value, done } = await reader.read();
-                    if (done) break;
-                    buffer += decoder.decode(value, { stream: true });
-                    const chunks = buffer.split("\n\n");
-                    buffer = chunks.pop() || "";
-
-                    for (const chunk of chunks) {
-                        const lines = chunk.split("\n");
-                        let eventName = "message";
-                        let dataText = "";
-
-                        for (const line of lines) {
-                            if (line.startsWith("event:")) eventName = line.slice(6).trim();
-                            if (line.startsWith("data:")) dataText += line.slice(5).trim();
-                        }
-
-                        if (!dataText) continue;
-                        const payload = JSON.parse(dataText);
-
-                        if (eventName === "start" && payload.session) {
-                            state.sessionId = payload.session.id;
-                            chatTitleEl.textContent = payload.session.title;
-                            chatSubtitleEl.textContent = payload.session.id;
-                        }
-                        if (eventName === "delta") {
-                            assistantText += payload.text || "";
-                            updateLocalMessage(state.currentAssistantMessageId, assistantText);
-                        }
-                        if (eventName === "done") {
-                            assistantText = payload.reply || assistantText;
-                            updateLocalMessage(state.currentAssistantMessageId, assistantText);
-                            if (payload.session) {
-                                chatTitleEl.textContent = payload.session.title;
-                                chatSubtitleEl.textContent = payload.session.id;
-                            }
-                            setStatus("宸查噸鏂扮敓鎴愬悗缁璇?");
-                            refreshSessions().catch(() => {});
-                            loadSession(state.sessionId).catch(() => {});
-                        }
-                        if (eventName === "error") {
-                            throw new Error(payload.detail || "閲嶅彂澶辫触");
-                        }
-                    }
-                }
-            } catch (error) {
-                state.messages = previousMessages;
-                renderMessages();
-                setStatus(error.message || "閲嶅彂澶辫触");
-            } finally {
-                state.currentAssistantMessageId = null;
-                setSending(false);
-            }
-        }
-
-        async function sendMessage() {
-            const message = messageInputEl.value.trim();
-            const selectedImages = cloneImages(state.selectedImages || []);
-            const images = normalizeImagesForRequest(selectedImages);
-            if ((!message && !images.length) || state.sending) return;
-            if (!state.sessionId) {
-                await createSession();
-            }
-            if (!state.sessionId) return;
-
-            const pendingMessage = message;
-            const pendingImages = images;
-            messageInputEl.value = "";
-            clearSelectedImage();
-            appendLocalMessage("user", pendingMessage, pendingImages);
-            state.currentAssistantMessageId = appendLocalMessage("assistant", "");
-            setSending(true);
-
-            try {
-                const response = await fetch("/api/chat/stream", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({
-                        session_id: state.sessionId,
-                        message: pendingMessage,
-                        images: pendingImages,
-                        model: modelSelectEl.value,
-                    }),
-                });
-
-                if (!response.ok) {
-                    const data = await response.json().catch(() => ({}));
-                    throw new Error(data.detail || "鍙戦€佸け璐?");
-                }
-
-                const reader = response.body.getReader();
-                const decoder = new TextDecoder("utf-8");
-                let buffer = "";
-                let assistantText = "";
-
-                while (true) {
-                    const { value, done } = await reader.read();
-                    if (done) break;
-                    buffer += decoder.decode(value, { stream: true });
-                    const chunks = buffer.split("\n\n");
-                    buffer = chunks.pop() || "";
-
-                    for (const chunk of chunks) {
-                        const lines = chunk.split("\n");
-                        let eventName = "message";
-                        let dataText = "";
-
-                        for (const line of lines) {
-                            if (line.startsWith("event:")) eventName = line.slice(6).trim();
-                            if (line.startsWith("data:")) dataText += line.slice(5).trim();
-                        }
-
-                        if (!dataText) continue;
-                        const payload = JSON.parse(dataText);
-
-                        if (eventName === "start" && payload.session) {
-                            state.sessionId = payload.session.id;
-                            chatTitleEl.textContent = payload.session.title;
-                            chatSubtitleEl.textContent = payload.session.id;
-                        }
-                        if (eventName === "delta") {
-                            assistantText += payload.text || "";
-                            updateLocalMessage(state.currentAssistantMessageId, assistantText);
-                        }
-                        if (eventName === "done") {
-                            assistantText = payload.reply || assistantText;
-                            updateLocalMessage(state.currentAssistantMessageId, assistantText);
-                            if (payload.session) {
-                                chatTitleEl.textContent = payload.session.title;
-                                chatSubtitleEl.textContent = payload.session.id;
-                            }
-                            await refreshSessions();
-                        }
-                        if (eventName === "error") {
-                            throw new Error(payload.detail || "鍙戦€佸け璐?");
-                        }
-                    }
-                }
-            } catch (error) {
-                state.messages = state.messages.slice(0, -2);
-                state.selectedImages = selectedImages;
-                state.selectedImage = selectedImages[0] || null;
-                renderComposerImage();
-                renderMessages();
-                setStatus(error.message || "鍙戦€佸け璐?");
-            } finally {
-                state.currentAssistantMessageId = null;
-                setSending(false);
-                messageInputEl.focus();
-            }
-        }
 
         function scrollMessagesToBottom() {
             messagesEl.scrollTop = messagesEl.scrollHeight;
@@ -1927,21 +789,6 @@ function renderMessages() {
             scrollMessagesToBottom();
         }
 
-        function appendLocalMessage(role, content = "", image = null) {
-            const nextMessage = { id: uid(), role, content, image };
-            state.messages = [...state.messages, nextMessage];
-            if (!messagesEl.querySelector(".message")) {
-                renderMessages();
-                return nextMessage.id;
-            }
-            messagesEl.insertAdjacentHTML("beforeend", buildMessageHtml(nextMessage));
-            const appendedMessage = messagesEl.querySelector(`[data-message-id="${nextMessage.id}"]`);
-            if (appendedMessage) {
-                bindMessageEvents(appendedMessage);
-            }
-            scrollMessagesToBottom();
-            return nextMessage.id;
-        }
 
         function updateLocalMessage(messageId, content) {
             state.messages = state.messages.map((message) =>
@@ -2562,439 +1409,7 @@ function renderMessages() {
             }
         }
 
-async function editAndResendMessage(message) {
-            if (message.image) {
-                setStatus("图片消息暂不支持编辑后重发");
-                return;
-            }
-            const edited = window.prompt("修改后会从这里重新生成后续对话。", message.content);
-            if (edited === null) return;
-            const trimmed = edited.trim();
-            if (!trimmed) {
-                setStatus("消息不能为空");
-                return;
-            }
-            const targetIndex = state.messages.findIndex((item) => item.id === message.id);
-            if (targetIndex < 0) {
-                setStatus("未找到要编辑的消息");
-                return;
-            }
-            const previousMessages = state.messages.map((item) => ({
-                ...item,
-                image: item.image ? { ...item.image } : item.image,
-            }));
-            const optimisticAssistantId = uid();
-            state.messages = [
-                ...state.messages.slice(0, targetIndex),
-                { ...message, content: trimmed },
-                { id: optimisticAssistantId, role: "assistant", content: "", image: null },
-            ];
-            state.currentAssistantMessageId = optimisticAssistantId;
-            renderMessages();
-            setSending(true);
-            try {
-                const response = await fetch("/api/chat/stream", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({
-                        session_id: state.sessionId,
-                        message: trimmed,
-                        model: modelSelectEl.value,
-                        replace_from_message_id: message.id,
-                    }),
-                });
 
-                if (!response.ok) {
-                    const data = await response.json().catch(() => ({}));
-                    throw new Error(data.detail || "重发失败");
-                }
-
-                const reader = response.body.getReader();
-                const decoder = new TextDecoder("utf-8");
-                let buffer = "";
-                let assistantText = "";
-
-                while (true) {
-                    const { value, done } = await reader.read();
-                    if (done) break;
-                    buffer += decoder.decode(value, { stream: true });
-                    const chunks = buffer.split("\n\n");
-                    buffer = chunks.pop() || "";
-
-                    for (const chunk of chunks) {
-                        const lines = chunk.split("\n");
-                        let eventName = "message";
-                        let dataText = "";
-
-                        for (const line of lines) {
-                            if (line.startsWith("event:")) eventName = line.slice(6).trim();
-                            if (line.startsWith("data:")) dataText += line.slice(5).trim();
-                        }
-
-                        if (!dataText) continue;
-                        const payload = JSON.parse(dataText);
-
-                        if (eventName === "start" && payload.session) {
-                            state.sessionId = payload.session.id;
-                            chatTitleEl.textContent = payload.session.title;
-                            chatSubtitleEl.textContent = payload.session.id;
-                        }
-                        if (eventName === "delta") {
-                            assistantText += payload.text || "";
-                            updateLocalMessage(state.currentAssistantMessageId, assistantText);
-                        }
-                        if (eventName === "done") {
-                            assistantText = payload.reply || assistantText;
-                            updateLocalMessage(state.currentAssistantMessageId, assistantText);
-                            if (payload.session) {
-                                chatTitleEl.textContent = payload.session.title;
-                                chatSubtitleEl.textContent = payload.session.id;
-                            }
-                            setStatus("已重新生成后续对话");
-                            refreshSessions().catch(() => {});
-                            loadSession(state.sessionId).catch(() => {});
-                        }
-                        if (eventName === "error") {
-                            throw new Error(payload.detail || "重发失败");
-                        }
-                    }
-                }
-            } catch (error) {
-                state.messages = previousMessages;
-                renderMessages();
-                setStatus(error.message || "重发失败");
-            } finally {
-                state.currentAssistantMessageId = null;
-                setSending(false);
-            }
-        }
-
-        async function sendMessage() {
-            const message = messageInputEl.value.trim();
-            const selectedImage = state.selectedImage ? { ...state.selectedImage } : null;
-            const image = normalizeImageForRequest(selectedImage);
-            if ((!message && !image) || state.sending) return;
-            if (!state.sessionId) {
-                await createSession();
-            }
-            if (!state.sessionId) return;
-
-            const pendingMessage = message;
-            const pendingImage = image;
-            messageInputEl.value = "";
-            clearSelectedImage();
-            appendLocalMessage("user", pendingMessage, pendingImage);
-            state.currentAssistantMessageId = appendLocalMessage("assistant", "");
-            setSending(true);
-
-            try {
-                const response = await fetch("/api/chat/stream", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({
-                        session_id: state.sessionId,
-                        message: pendingMessage,
-                        image: pendingImage,
-                        model: modelSelectEl.value,
-                    }),
-                });
-
-                if (!response.ok) {
-                    const data = await response.json().catch(() => ({}));
-                    throw new Error(data.detail || "发送失败");
-                }
-
-                const reader = response.body.getReader();
-                const decoder = new TextDecoder("utf-8");
-                let buffer = "";
-                let assistantText = "";
-
-                while (true) {
-                    const { value, done } = await reader.read();
-                    if (done) break;
-                    buffer += decoder.decode(value, { stream: true });
-                    const chunks = buffer.split("\n\n");
-                    buffer = chunks.pop() || "";
-
-                    for (const chunk of chunks) {
-                        const lines = chunk.split("\n");
-                        let eventName = "message";
-                        let dataText = "";
-
-                        for (const line of lines) {
-                            if (line.startsWith("event:")) eventName = line.slice(6).trim();
-                            if (line.startsWith("data:")) dataText += line.slice(5).trim();
-                        }
-
-                        if (!dataText) continue;
-                        const payload = JSON.parse(dataText);
-
-                        if (eventName === "start" && payload.session) {
-                            state.sessionId = payload.session.id;
-                            chatTitleEl.textContent = payload.session.title;
-                            chatSubtitleEl.textContent = payload.session.id;
-                        }
-                        if (eventName === "delta") {
-                            assistantText += payload.text || "";
-                            updateLocalMessage(state.currentAssistantMessageId, assistantText);
-                        }
-                        if (eventName === "done") {
-                            assistantText = payload.reply || assistantText;
-                            updateLocalMessage(state.currentAssistantMessageId, assistantText);
-                            if (payload.session) {
-                                chatTitleEl.textContent = payload.session.title;
-                                chatSubtitleEl.textContent = payload.session.id;
-                            }
-                            await refreshSessions();
-                        }
-                        if (eventName === "error") {
-                            throw new Error(payload.detail || "发送失败");
-                        }
-                    }
-                }
-            } catch (error) {
-                state.messages = state.messages.slice(0, -2);
-                state.selectedImage = selectedImage;
-                renderComposerImage();
-                renderMessages();
-                setStatus(error.message || "发送失败");
-            } finally {
-                state.currentAssistantMessageId = null;
-                setSending(false);
-                messageInputEl.focus();
-            }
-        }
-
-        function appendLocalMessage(role, content = "", images = []) {
-            const normalizedImages = Array.isArray(images) ? cloneImages(images) : (images ? [{ ...images }] : []);
-            const nextMessage = {
-                id: uid(),
-                role,
-                content,
-                images: normalizedImages,
-                image: normalizedImages[0] || null,
-            };
-            state.messages = [...state.messages, nextMessage];
-            if (!messagesEl.querySelector(".message")) {
-                renderMessages();
-                return nextMessage.id;
-            }
-            messagesEl.insertAdjacentHTML("beforeend", buildMessageHtml(nextMessage));
-            const appendedMessage = messagesEl.querySelector(`[data-message-id="${nextMessage.id}"]`);
-            if (appendedMessage) {
-                bindMessageEvents(appendedMessage);
-            }
-            scrollMessagesToBottom();
-            return nextMessage.id;
-        }
-
-        async function editAndResendMessage(message) {
-            if (getMessageImages(message).length) {
-                setStatus("鍥剧墖娑堟伅鏆備笉鏀寔缂栬緫鍚庨噸鍙?");
-                return;
-            }
-            const edited = window.prompt("淇敼鍚庝細浠庤繖閲岄噸鏂扮敓鎴愬悗缁璇濄€?", message.content);
-            if (edited === null) return;
-            const trimmed = edited.trim();
-            if (!trimmed) {
-                setStatus("娑堟伅涓嶈兘涓虹┖");
-                return;
-            }
-            const targetIndex = state.messages.findIndex((item) => item.id === message.id);
-            if (targetIndex < 0) {
-                setStatus("鏈壘鍒拌缂栬緫鐨勬秷鎭?");
-                return;
-            }
-            const previousMessages = state.messages.map((item) => {
-                const images = cloneImages(getMessageImages(item));
-                return {
-                    ...item,
-                    images,
-                    image: images[0] || null,
-                };
-            });
-            const optimisticAssistantId = uid();
-            state.messages = [
-                ...state.messages.slice(0, targetIndex),
-                { ...message, content: trimmed, images: [], image: null },
-                { id: optimisticAssistantId, role: "assistant", content: "", images: [], image: null },
-            ];
-            state.currentAssistantMessageId = optimisticAssistantId;
-            renderMessages();
-            setSending(true);
-            try {
-                const response = await fetch("/api/chat/stream", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({
-                        session_id: state.sessionId,
-                        message: trimmed,
-                        model: modelSelectEl.value,
-                        replace_from_message_id: message.id,
-                    }),
-                });
-
-                if (!response.ok) {
-                    const data = await response.json().catch(() => ({}));
-                    throw new Error(data.detail || "閲嶅彂澶辫触");
-                }
-
-                const reader = response.body.getReader();
-                const decoder = new TextDecoder("utf-8");
-                let buffer = "";
-                let assistantText = "";
-
-                while (true) {
-                    const { value, done } = await reader.read();
-                    if (done) break;
-                    buffer += decoder.decode(value, { stream: true });
-                    const chunks = buffer.split("\n\n");
-                    buffer = chunks.pop() || "";
-
-                    for (const chunk of chunks) {
-                        const lines = chunk.split("\n");
-                        let eventName = "message";
-                        let dataText = "";
-
-                        for (const line of lines) {
-                            if (line.startsWith("event:")) eventName = line.slice(6).trim();
-                            if (line.startsWith("data:")) dataText += line.slice(5).trim();
-                        }
-
-                        if (!dataText) continue;
-                        const payload = JSON.parse(dataText);
-
-                        if (eventName === "start" && payload.session) {
-                            state.sessionId = payload.session.id;
-                            chatTitleEl.textContent = payload.session.title;
-                            chatSubtitleEl.textContent = payload.session.id;
-                        }
-                        if (eventName === "delta") {
-                            assistantText += payload.text || "";
-                            updateLocalMessage(state.currentAssistantMessageId, assistantText);
-                        }
-                        if (eventName === "done") {
-                            assistantText = payload.reply || assistantText;
-                            updateLocalMessage(state.currentAssistantMessageId, assistantText);
-                            if (payload.session) {
-                                chatTitleEl.textContent = payload.session.title;
-                                chatSubtitleEl.textContent = payload.session.id;
-                            }
-                            setStatus("宸查噸鏂扮敓鎴愬悗缁璇?");
-                            refreshSessions().catch(() => {});
-                            loadSession(state.sessionId).catch(() => {});
-                        }
-                        if (eventName === "error") {
-                            throw new Error(payload.detail || "閲嶅彂澶辫触");
-                        }
-                    }
-                }
-            } catch (error) {
-                state.messages = previousMessages;
-                renderMessages();
-                setStatus(error.message || "閲嶅彂澶辫触");
-            } finally {
-                state.currentAssistantMessageId = null;
-                setSending(false);
-            }
-        }
-
-        async function sendMessage() {
-            const message = messageInputEl.value.trim();
-            const selectedImages = cloneImages(state.selectedImages || []);
-            const images = normalizeImagesForRequest(selectedImages);
-            if ((!message && !images.length) || state.sending) return;
-            if (!state.sessionId) {
-                await createSession();
-            }
-            if (!state.sessionId) return;
-
-            const pendingMessage = message;
-            const pendingImages = images;
-            messageInputEl.value = "";
-            clearSelectedImage();
-            appendLocalMessage("user", pendingMessage, pendingImages);
-            state.currentAssistantMessageId = appendLocalMessage("assistant", "");
-            setSending(true);
-
-            try {
-                const response = await fetch("/api/chat/stream", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({
-                        session_id: state.sessionId,
-                        message: pendingMessage,
-                        images: pendingImages,
-                        model: modelSelectEl.value,
-                    }),
-                });
-
-                if (!response.ok) {
-                    const data = await response.json().catch(() => ({}));
-                    throw new Error(data.detail || "鍙戦€佸け璐?");
-                }
-
-                const reader = response.body.getReader();
-                const decoder = new TextDecoder("utf-8");
-                let buffer = "";
-                let assistantText = "";
-
-                while (true) {
-                    const { value, done } = await reader.read();
-                    if (done) break;
-                    buffer += decoder.decode(value, { stream: true });
-                    const chunks = buffer.split("\n\n");
-                    buffer = chunks.pop() || "";
-
-                    for (const chunk of chunks) {
-                        const lines = chunk.split("\n");
-                        let eventName = "message";
-                        let dataText = "";
-
-                        for (const line of lines) {
-                            if (line.startsWith("event:")) eventName = line.slice(6).trim();
-                            if (line.startsWith("data:")) dataText += line.slice(5).trim();
-                        }
-
-                        if (!dataText) continue;
-                        const payload = JSON.parse(dataText);
-
-                        if (eventName === "start" && payload.session) {
-                            state.sessionId = payload.session.id;
-                            chatTitleEl.textContent = payload.session.title;
-                            chatSubtitleEl.textContent = payload.session.id;
-                        }
-                        if (eventName === "delta") {
-                            assistantText += payload.text || "";
-                            updateLocalMessage(state.currentAssistantMessageId, assistantText);
-                        }
-                        if (eventName === "done") {
-                            assistantText = payload.reply || assistantText;
-                            updateLocalMessage(state.currentAssistantMessageId, assistantText);
-                            if (payload.session) {
-                                chatTitleEl.textContent = payload.session.title;
-                                chatSubtitleEl.textContent = payload.session.id;
-                            }
-                            await refreshSessions();
-                        }
-                        if (eventName === "error") {
-                            throw new Error(payload.detail || "鍙戦€佸け璐?");
-                        }
-                    }
-                }
-            } catch (error) {
-                state.messages = state.messages.slice(0, -2);
-                state.selectedImages = selectedImages;
-                state.selectedImage = selectedImages[0] || null;
-                renderComposerImage();
-                renderMessages();
-                setStatus(error.message || "鍙戦€佸け璐?");
-            } finally {
-                state.currentAssistantMessageId = null;
-                setSending(false);
-                messageInputEl.focus();
-            }
-        }
 
         function switchAuthTab(tab) {
             document.querySelectorAll(".tab-btn").forEach((button) => {
@@ -3314,11 +1729,7 @@ async function editAndResendMessage(message) {
                 return;
             }
             try {
-                const added = await handleAttachmentFiles(files);
-                const parts = [];
-                if (added.images.length) parts.push(`图片 ${added.images.length} 张`);
-                if (added.files.length) parts.push(`文件 ${added.files.length} 个`);
-                setStatus(`已添加${parts.join("，")}`);
+                await addAttachmentsFromFiles(files, "已添加");
             } catch (error) {
                 clearSelectedImage();
                 setStatus(error.message || "选择附件失败");
@@ -3326,23 +1737,71 @@ async function editAndResendMessage(message) {
         }, true);
 
         messageInputEl.addEventListener("paste", async (event) => {
-            const files = Array.from(event.clipboardData?.items || [])
-                .filter((item) => item.type && item.type.startsWith("image/"))
-                .map((item) => item.getAsFile())
-                .filter(Boolean);
+            const files = extractSupportedFilesFromDataTransfer(event.clipboardData);
             if (!files.length) {
                 return;
             }
             event.preventDefault();
             event.stopImmediatePropagation();
             try {
-                const addedImages = await handleImageFiles(files);
-                setStatus(`已粘贴 ${addedImages.length} 张图片`);
+                await addAttachmentsFromFiles(files, "已粘贴");
             } catch (error) {
                 clearSelectedImage();
-                setStatus(error.message || "粘贴图片失败");
+                setStatus(error.message || "粘贴附件失败");
             }
         }, true);
+
+        chatFormEl.addEventListener("dragenter", (event) => {
+            const files = extractSupportedFilesFromDataTransfer(event.dataTransfer);
+            if (!files.length || !state.auth?.authenticated || state.sending) {
+                return;
+            }
+            event.preventDefault();
+            composerDragDepth += 1;
+            setComposerDragActive(true);
+        });
+
+        chatFormEl.addEventListener("dragover", (event) => {
+            const files = extractSupportedFilesFromDataTransfer(event.dataTransfer);
+            if (!files.length || !state.auth?.authenticated || state.sending) {
+                return;
+            }
+            event.preventDefault();
+            if (event.dataTransfer) {
+                event.dataTransfer.dropEffect = "copy";
+            }
+            setComposerDragActive(true);
+        });
+
+        chatFormEl.addEventListener("dragleave", (event) => {
+            if (!chatFormEl.classList.contains("drag-active")) {
+                return;
+            }
+            if (event.relatedTarget && chatFormEl.contains(event.relatedTarget)) {
+                return;
+            }
+            composerDragDepth = Math.max(0, composerDragDepth - 1);
+            if (composerDragDepth === 0) {
+                setComposerDragActive(false);
+            }
+        });
+
+        chatFormEl.addEventListener("drop", async (event) => {
+            const files = extractSupportedFilesFromDataTransfer(event.dataTransfer);
+            composerDragDepth = 0;
+            setComposerDragActive(false);
+            if (!files.length || !state.auth?.authenticated || state.sending) {
+                return;
+            }
+            event.preventDefault();
+            event.stopPropagation();
+            try {
+                await addAttachmentsFromFiles(files, "已拖入");
+            } catch (error) {
+                clearSelectedImage();
+                setStatus(error.message || "拖拽附件失败");
+            }
+        });
 
         function buildMessageHtml(message) {
             const images = getMessageImages(message);
