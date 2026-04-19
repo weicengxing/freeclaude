@@ -475,9 +475,143 @@
         }
 
         .auth-card {
-            width: min(540px, 100%);
-            border-radius: 24px;
-            padding: 24px;
+            width: min(1080px, 100%);
+            border-radius: 28px;
+            padding: 0;
+            overflow: hidden;
+            display: grid;
+            grid-template-columns: minmax(320px, 0.95fr) minmax(420px, 1.05fr);
+            min-height: 640px;
+        }
+
+        .auth-hero {
+            position: relative;
+            padding: 32px 28px;
+            background:
+                radial-gradient(circle at top left, rgba(20, 184, 166, 0.24), transparent 32%),
+                radial-gradient(circle at 80% 20%, rgba(59, 130, 246, 0.18), transparent 26%),
+                linear-gradient(180deg, #0f172a 0%, #10243d 52%, #0f172a 100%);
+            color: #ecfeff;
+            display: grid;
+            align-content: space-between;
+            gap: 24px;
+        }
+
+        .auth-hero::after {
+            content: "";
+            position: absolute;
+            inset: 18px;
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 22px;
+            pointer-events: none;
+        }
+
+        .auth-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 12px;
+            border-radius: 999px;
+            background: rgba(255, 255, 255, 0.08);
+            color: #99f6e4;
+            font-size: 12px;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+        }
+
+        .auth-hero h2 {
+            margin: 0;
+            font-size: 36px;
+            line-height: 1.08;
+            letter-spacing: -0.03em;
+        }
+
+        .auth-hero p {
+            margin: 0;
+            color: rgba(236, 254, 255, 0.78);
+            line-height: 1.7;
+        }
+
+        .auth-feature-list {
+            display: grid;
+            gap: 12px;
+            margin-top: 18px;
+        }
+
+        .auth-feature-item {
+            padding: 14px 16px;
+            border-radius: 16px;
+            background: rgba(255, 255, 255, 0.06);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+        }
+
+        .auth-feature-item strong {
+            display: block;
+            font-size: 14px;
+            margin-bottom: 4px;
+            color: #f8fafc;
+        }
+
+        .auth-feature-item span {
+            font-size: 13px;
+            color: rgba(236, 254, 255, 0.72);
+            line-height: 1.6;
+        }
+
+        .auth-admin-note {
+            padding: 14px 16px;
+            border-radius: 18px;
+            background: rgba(15, 23, 42, 0.34);
+            border: 1px solid rgba(153, 246, 228, 0.18);
+            font-size: 13px;
+            line-height: 1.7;
+            color: rgba(236, 254, 255, 0.82);
+        }
+
+        .auth-panel {
+            padding: 28px;
+            display: grid;
+            align-content: start;
+            gap: 18px;
+            background:
+                linear-gradient(180deg, rgba(255,255,255,0.98) 0%, rgba(248,250,252,0.94) 100%);
+        }
+
+        .auth-panel-top {
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            gap: 16px;
+        }
+
+        .auth-panel-title {
+            display: grid;
+            gap: 6px;
+        }
+
+        .auth-panel-title h3 {
+            margin: 0;
+            font-size: 26px;
+            letter-spacing: -0.03em;
+        }
+
+        .auth-panel-title p {
+            margin: 0;
+            color: var(--muted);
+            line-height: 1.6;
+        }
+
+        .auth-close-btn {
+            min-width: 88px;
+        }
+
+        .auth-tab-row {
+            padding: 6px;
+            border-radius: 18px;
+            background: #eef2f7;
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 6px;
         }
 
         .admin-card {
@@ -541,27 +675,70 @@
             flex-wrap: wrap;
         }
 
-        .tab-row {
-            margin-bottom: 16px;
-        }
-
         .tab-btn {
-            flex: 1;
-            border-radius: 12px;
-            border: 1px solid var(--line);
-            background: #f8fafc;
-            padding: 11px 12px;
+            border-radius: 14px;
+            border: 1px solid transparent;
+            background: transparent;
+            padding: 12px 14px;
+            color: var(--muted);
+            font-weight: 600;
         }
 
         .tab-btn.active {
             background: var(--accent);
             color: white;
             border-color: var(--accent);
+            box-shadow: 0 10px 24px rgba(15, 118, 110, 0.18);
         }
 
         .form-grid {
             display: grid;
-            gap: 12px;
+            gap: 14px;
+        }
+
+        .auth-form {
+            padding: 8px 0 0;
+        }
+
+        .auth-input {
+            display: grid;
+            gap: 8px;
+        }
+
+        .auth-input label {
+            font-size: 13px;
+            color: var(--muted);
+        }
+
+        .auth-panel input,
+        .auth-panel textarea,
+        .auth-panel select {
+            border-radius: 14px;
+            padding: 13px 14px;
+            border-color: #d8e1ec;
+            background: rgba(255, 255, 255, 0.96);
+            box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.7);
+        }
+
+        .auth-submit-btn {
+            min-height: 48px;
+            font-weight: 700;
+            letter-spacing: 0.01em;
+        }
+
+        .auth-inline-hint {
+            margin-top: -4px;
+            font-size: 12px;
+            color: var(--muted);
+            line-height: 1.5;
+        }
+
+        .auth-status-box {
+            min-height: 22px;
+            padding: 10px 12px;
+            border-radius: 14px;
+            background: #f8fafc;
+            border: 1px solid #e2e8f0;
         }
 
         .inline-grid {
@@ -767,6 +944,10 @@
             .admin-db-filters { grid-template-columns: 1fr; }
             .admin-db-actions { justify-content: flex-start; }
             .db-modal-grid { grid-template-columns: 1fr; }
+            .auth-card { grid-template-columns: 1fr; min-height: auto; }
+            .auth-hero { min-height: 280px; }
+            .auth-panel { padding: 22px; }
+            .auth-tab-row { grid-template-columns: 1fr; }
         }
     </style>
 </head>
@@ -884,52 +1065,95 @@
         </main>
     </div>
 
-    <div id="auth-overlay" class="auth-overlay hidden">
+<div id="auth-overlay" class="auth-overlay hidden">
         <div class="auth-card">
-            <div class="header-row">
+            <section class="auth-hero">
                 <div>
-                    <div class="session-title">账号中心</div>
-                    <div class="helper">默认会自动创建两个 SuperAdmin 账号：admin / admin123456、root / admin123456。</div>
+                    <div class="auth-badge">AI Agent Workspace</div>
+                    <h2>进入你的 AI Agent 工作区。</h2>
+                    <p>登录后继续聊天上下文、会话历史和数据库操作。不同账号的工作区彼此隔离，避免上下文串线。</p>
                 </div>
-                <button id="close-auth-btn" class="ghost-btn" type="button">关闭</button>
-            </div>
+            </section>
 
-            <div class="tab-row">
-                <button class="tab-btn active" type="button" data-tab="login">登录</button>
-                <button class="tab-btn" type="button" data-tab="register">注册</button>
-                <button class="tab-btn" type="button" data-tab="reset">找回密码</button>
-            </div>
-
-            <form id="login-form" class="form-grid auth-form">
-                <input name="username" placeholder="用户名或邮箱" required>
-                <input name="password" type="password" placeholder="密码" required>
-                <button class="primary-btn" type="submit">登录</button>
-            </form>
-
-            <form id="register-form" class="form-grid auth-form hidden">
-                <input name="username" placeholder="用户名" required>
-                <input name="email" type="email" placeholder="邮箱" required>
-                <div class="inline-grid">
-                    <input name="verifyCode" placeholder="验证码" required>
-                    <button id="send-register-code-btn" class="secondary-btn" type="button">发验证码</button>
+            <section class="auth-panel">
+                <div class="auth-panel-top">
+                    <div class="auth-panel-title">
+                        <h3>账号中心</h3>
+                        <p>选择登录、注册或找回密码，进入你的 AI Agent 控制台。</p>
+                    </div>
+                    <button id="close-auth-btn" class="ghost-btn auth-close-btn" type="button">关闭</button>
                 </div>
-                <input name="password" type="password" placeholder="密码（至少 6 位）" required>
-                <input name="confirmPassword" type="password" placeholder="确认密码" required>
-                <button class="primary-btn" type="submit">注册</button>
-            </form>
 
-            <form id="reset-form" class="form-grid auth-form hidden">
-                <input name="email" type="email" placeholder="注册邮箱" required>
-                <div class="inline-grid">
-                    <input name="verifyCode" placeholder="验证码" required>
-                    <button id="send-reset-code-btn" class="secondary-btn" type="button">发验证码</button>
+                <div class="auth-tab-row">
+                    <button class="tab-btn active" type="button" data-tab="login">登录</button>
+                    <button class="tab-btn" type="button" data-tab="register">注册</button>
+                    <button class="tab-btn" type="button" data-tab="reset">找回密码</button>
                 </div>
-                <input name="password" type="password" placeholder="新密码" required>
-                <input name="confirmPassword" type="password" placeholder="确认新密码" required>
-                <button class="primary-btn" type="submit">重置密码</button>
-            </form>
 
-            <div id="auth-status" class="helper"></div>
+                <form id="login-form" class="form-grid auth-form">
+                    <div class="auth-input">
+                        <label>账号</label>
+                        <input name="username" placeholder="用户名或邮箱" autocomplete="username" spellcheck="false" required>
+                    </div>
+                    <div class="auth-input">
+                        <label>密码</label>
+                        <input name="password" type="password" placeholder="输入登录密码" autocomplete="current-password" required>
+                    </div>
+                    <button class="primary-btn auth-submit-btn" type="submit">进入工作区</button>
+                </form>
+
+                <form id="register-form" class="form-grid auth-form hidden">
+                    <div class="auth-input">
+                        <label>用户名</label>
+                        <input name="username" placeholder="设置一个用户名" autocomplete="username" spellcheck="false" required>
+                    </div>
+                    <div class="auth-input">
+                        <label>邮箱</label>
+                        <input name="email" type="email" placeholder="用于接收验证码和找回密码" autocomplete="email" spellcheck="false" required>
+                    </div>
+                    <div class="auth-input">
+                        <label>注册验证码</label>
+                        <div class="inline-grid">
+                            <input name="verifyCode" placeholder="输入邮箱验证码" autocomplete="one-time-code" required>
+                            <button id="send-register-code-btn" class="secondary-btn" type="button">发送验证码</button>
+                        </div>
+                    </div>
+                    <div class="auth-input">
+                        <label>密码</label>
+                        <input name="password" type="password" placeholder="至少 6 位" autocomplete="new-password" required>
+                    </div>
+                    <div class="auth-input">
+                        <label>确认密码</label>
+                        <input name="confirmPassword" type="password" placeholder="再次输入密码" autocomplete="new-password" required>
+                    </div>
+                    <button class="primary-btn auth-submit-btn" type="submit">创建账号</button>
+                </form>
+
+                <form id="reset-form" class="form-grid auth-form hidden">
+                    <div class="auth-input">
+                        <label>注册邮箱</label>
+                        <input name="email" type="email" placeholder="输入注册时使用的邮箱" autocomplete="email" spellcheck="false" required>
+                    </div>
+                    <div class="auth-input">
+                        <label>验证码</label>
+                        <div class="inline-grid">
+                            <input name="verifyCode" placeholder="输入找回密码验证码" autocomplete="one-time-code" required>
+                            <button id="send-reset-code-btn" class="secondary-btn" type="button">发送验证码</button>
+                        </div>
+                    </div>
+                    <div class="auth-input">
+                        <label>新密码</label>
+                        <input name="password" type="password" placeholder="设置新的登录密码" autocomplete="new-password" required>
+                    </div>
+                    <div class="auth-input">
+                        <label>确认新密码</label>
+                        <input name="confirmPassword" type="password" placeholder="再次输入新的密码" autocomplete="new-password" required>
+                    </div>
+                    <button class="primary-btn auth-submit-btn" type="submit">重置密码</button>
+                </form>
+
+                <div id="auth-status" class="helper auth-status-box"></div>
+            </section>
         </div>
     </div>
 
