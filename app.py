@@ -34,6 +34,7 @@ from uuapi_client import (
     OPUS_47_MODEL,
     SUPPORTED_IMAGE_MEDIA_TYPES,
     iter_stream_chat,
+    mask_api_key,
     normalize_model,
     send_chat,
 )
@@ -41,9 +42,33 @@ from uuapi_client import (
 
 BASE_DIR = Path(__file__).resolve().parent
 DB_PATH = BASE_DIR / "chat_app.db"
+DEBUG_LOG_PATH = BASE_DIR / "chat_debug.log"
+APP_UPSTREAM_BASE_URL = os.getenv("UUAPI_BASE_URL", "https://uuapi.net").rstrip("/")
 DEFAULT_KEY_SOURCE_URL = "https://github.com/weicengxing/freeclaude/blob/main/key.txt"
 OPUS47_KEY_SOURCE_URL = "https://github.com/weicengxing/freeclaude/blob/main/keypromax.txt"
 logger = logging.getLogger(__name__)
+
+
+def ensure_debug_log_handler() -> None:
+    root_logger = logging.getLogger()
+    target_path = str(DEBUG_LOG_PATH)
+    for handler in root_logger.handlers:
+        if isinstance(handler, logging.FileHandler) and getattr(handler, "baseFilename", "") == target_path:
+            return
+    file_handler = logging.FileHandler(target_path, encoding="utf-8")
+    file_handler.setLevel(logging.WARNING)
+    file_handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s %(message)s"))
+    root_logger.addHandler(file_handler)
+    if root_logger.level == logging.NOTSET or root_logger.level > logging.WARNING:
+        root_logger.setLevel(logging.WARNING)
+
+
+def log_chat_chain(event: str, **fields: Any) -> None:
+    parts = [f"{key}={value}" for key, value in fields.items()]
+    logger.warning("CHAT %s %s", event, " ".join(parts))
+
+
+ensure_debug_log_handler()
 
 USER_SESSION_COOKIE = "user_session"
 USER_SESSION_TTL_SECONDS = 60 * 60 * 24 * 7
@@ -95,12 +120,6 @@ KEY_POOL_CONFIGS = {
         "source_url": OPUS47_KEY_SOURCE_URL,
     },
 }
-LOCAL_KEY_SOURCE_FILES = {
-    DEFAULT_KEY_SOURCE_URL: BASE_DIR / "key.txt",
-    OPUS47_KEY_SOURCE_URL: BASE_DIR / "keypromax.txt",
-}
-
-
 def get_env_int(name: str, default: int, minimum: int = 1) -> int:
     raw_value = os.getenv(name)
     if raw_value is None or not raw_value.strip():
@@ -1421,10 +1440,6 @@ def parse_api_keys_from_text(raw_text: str) -> list[str]:
 
 
 def read_api_key_source_text(source_url: str) -> tuple[str, str]:
-    local_path = LOCAL_KEY_SOURCE_FILES.get(source_url)
-    if local_path is not None and local_path.exists():
-        return local_path.read_text(encoding="utf-8"), str(local_path)
-
     raw_url = normalize_github_raw_url(source_url)
     try:
         response = httpx.get(raw_url, timeout=30.0, follow_redirects=True)
@@ -1760,28 +1775,87 @@ def send_chat_with_user_api_key(
     retry_limit = max(1, min(get_api_key_count(connection, key_pool), 50))
     attempted_key_ids: set[int] = set()
     last_exc: Exception | None = None
+    log_chat_chain(
+        "nonstream_begin",
+        user_id=user_id,
+        session_id=session_id,
+        model=normalize_model(model),
+        key_pool=key_pool,
+        retry_limit=retry_limit,
+        message_count=len(messages),
+    )
 
-    for _ in range(retry_limit):
+    for attempt in range(1, retry_limit + 1):
         key_record = ensure_user_api_key(connection, user_id, key_pool)
         key_id = int(key_record["id"])
         if key_id in attempted_key_ids:
             break
         attempted_key_ids.add(key_id)
+        log_chat_chain(
+            "nonstream_attempt",
+            user_id=user_id,
+            session_id=session_id,
+            model=normalize_model(model),
+            key_pool=key_pool,
+            attempt=attempt,
+            key_id=key_id,
+            key=mask_api_key(key_record["api_key"]),
+        )
 
         try:
-            return send_chat(
+            response = send_chat(
                 messages=messages,
                 model=model,
                 session_id=session_id,
                 api_key=key_record["api_key"],
+                base_url=APP_UPSTREAM_BASE_URL,
             )
+            log_chat_chain(
+                "nonstream_success",
+                user_id=user_id,
+                session_id=session_id,
+                model=normalize_model(model),
+                key_pool=key_pool,
+                key_id=key_id,
+                key=mask_api_key(key_record["api_key"]),
+                response_model=response.get("model"),
+            )
+            return response
         except Exception as exc:
             last_exc = exc
+            log_chat_chain(
+                "nonstream_error",
+                user_id=user_id,
+                session_id=session_id,
+                model=normalize_model(model),
+                key_pool=key_pool,
+                attempt=attempt,
+                key_id=key_id,
+                key=mask_api_key(key_record["api_key"]),
+                detail=get_exception_detail(exc),
+            )
             if not is_api_key_quota_error(exc):
                 raise
             advance_user_api_key(connection, user_id, key_id, key_pool)
+            log_chat_chain(
+                "nonstream_rotate",
+                user_id=user_id,
+                session_id=session_id,
+                model=normalize_model(model),
+                key_pool=key_pool,
+                exhausted_key_id=key_id,
+            )
 
     if last_exc is not None:
+        log_chat_chain(
+            "nonstream_exhausted",
+            user_id=user_id,
+            session_id=session_id,
+            model=normalize_model(model),
+            key_pool=key_pool,
+            attempted=",".join(str(item) for item in sorted(attempted_key_ids)),
+            detail=get_exception_detail(last_exc),
+        )
         raise HTTPException(status_code=503, detail=f"所有可切换的 API Key 都不可用: {last_exc}") from last_exc
     raise HTTPException(status_code=503, detail="当前没有可用的 API Key")
 
@@ -2178,6 +2252,7 @@ async def periodic_message_cleanup() -> None:
 @app.on_event("startup")
 async def startup() -> None:
     init_db()
+    logger.warning("CHAT startup upstream_base_url=%s", APP_UPSTREAM_BASE_URL)
     app.state.message_cleanup_task = asyncio.create_task(periodic_message_cleanup())
 
 
@@ -2700,6 +2775,16 @@ def api_chat(payload: ChatRequest, user_session: str | None = Cookie(default=Non
     with closing(get_connection()) as connection:
         user = require_user(connection, user_session)
         model = validate_requested_model(user, payload.model)
+        log_chat_chain(
+            "route_nonstream",
+            user_id=user["id"],
+            username=user["username"],
+            session_id=payload.session_id,
+            model=model,
+            message_len=len(message_text),
+            images=len(images),
+            files=len(files),
+        )
         session, messages, assistant_text = send_and_persist_reply(
             connection=connection,
             session_id=payload.session_id,
@@ -2728,6 +2813,17 @@ def api_chat_stream(payload: ChatRequest, user_session: str | None = Cookie(defa
     with closing(get_connection()) as connection:
         user = require_user(connection, user_session)
         requested_model = validate_requested_model(user, payload.model)
+        log_chat_chain(
+            "route_stream",
+            user_id=user["id"],
+            username=user["username"],
+            session_id=payload.session_id,
+            model=requested_model,
+            message_len=len(message_text),
+            images=len(images),
+            files=len(files),
+            replace_from_message_id=payload.replace_from_message_id,
+        )
         removed_suffix: list[dict] = []
         replace_from_message_id = payload.replace_from_message_id
 
@@ -2776,6 +2872,17 @@ def api_chat_stream(payload: ChatRequest, user_session: str | None = Cookie(defa
         session = get_session(connection, payload.session_id, user["id"])
         key_pool = get_key_pool_name_for_model(requested_model)
         retry_limit = max(1, min(get_api_key_count(connection, key_pool), 50))
+        log_chat_chain(
+            "stream_prepared",
+            user_id=user["id"],
+            username=user["username"],
+            session_id=payload.session_id,
+            model=requested_model,
+            key_pool=key_pool,
+            history_count=len(history_before),
+            request_message_count=len(request_messages),
+            retry_limit=retry_limit,
+        )
 
     def event_stream():
         assistant_parts: list[str] = []
@@ -2803,7 +2910,7 @@ def api_chat_stream(payload: ChatRequest, user_session: str | None = Cookie(defa
             attempted_key_ids: set[int] = set()
             last_exc: Exception | None = None
             stream_completed = False
-            for _ in range(retry_limit):
+            for attempt in range(1, retry_limit + 1):
                 with closing(get_connection()) as key_connection:
                     key_record = ensure_user_api_key(key_connection, user["id"], key_pool)
 
@@ -2811,6 +2918,17 @@ def api_chat_stream(payload: ChatRequest, user_session: str | None = Cookie(defa
                 if key_id in attempted_key_ids:
                     break
                 attempted_key_ids.add(key_id)
+                log_chat_chain(
+                    "stream_attempt",
+                    user_id=user["id"],
+                    username=user["username"],
+                    session_id=payload.session_id,
+                    model=requested_model,
+                    key_pool=key_pool,
+                    attempt=attempt,
+                    key_id=key_id,
+                    key=mask_api_key(key_record["api_key"]),
+                )
 
                 emitted_text = False
                 try:
@@ -2819,6 +2937,7 @@ def api_chat_stream(payload: ChatRequest, user_session: str | None = Cookie(defa
                         model=requested_model,
                         session_id=payload.session_id,
                         api_key=key_record["api_key"],
+                        base_url=APP_UPSTREAM_BASE_URL,
                     ):
                         stream_error_detail = extract_stream_error_detail(chunk)
                         if stream_error_detail:
@@ -2830,16 +2949,60 @@ def api_chat_stream(payload: ChatRequest, user_session: str | None = Cookie(defa
                             assistant_parts.append(text_delta)
                             yield sse_event("delta", {"text": text_delta})
                     stream_completed = True
+                    log_chat_chain(
+                        "stream_success",
+                        user_id=user["id"],
+                        username=user["username"],
+                        session_id=payload.session_id,
+                        model=requested_model,
+                        key_pool=key_pool,
+                        key_id=key_id,
+                        key=mask_api_key(key_record["api_key"]),
+                        response_model=response_model,
+                        chars=len("".join(assistant_parts)),
+                    )
                     break
                 except Exception as exc:
                     last_exc = exc
+                    log_chat_chain(
+                        "stream_error",
+                        user_id=user["id"],
+                        username=user["username"],
+                        session_id=payload.session_id,
+                        model=requested_model,
+                        key_pool=key_pool,
+                        attempt=attempt,
+                        key_id=key_id,
+                        key=mask_api_key(key_record["api_key"]),
+                        emitted_text=emitted_text,
+                        detail=get_exception_detail(exc),
+                    )
                     if emitted_text or not is_api_key_quota_error(exc):
                         raise
                     with closing(get_connection()) as rotate_connection:
                         advance_user_api_key(rotate_connection, user["id"], key_id, key_pool)
+                    log_chat_chain(
+                        "stream_rotate",
+                        user_id=user["id"],
+                        username=user["username"],
+                        session_id=payload.session_id,
+                        model=requested_model,
+                        key_pool=key_pool,
+                        exhausted_key_id=key_id,
+                    )
 
             if not stream_completed:
                 if last_exc is not None:
+                    log_chat_chain(
+                        "stream_exhausted",
+                        user_id=user["id"],
+                        username=user["username"],
+                        session_id=payload.session_id,
+                        model=requested_model,
+                        key_pool=key_pool,
+                        attempted=",".join(str(item) for item in sorted(attempted_key_ids)),
+                        detail=get_exception_detail(last_exc),
+                    )
                     raise HTTPException(status_code=503, detail=f"所有可切换的 API Key 都不可用: {last_exc}") from last_exc
                 raise HTTPException(status_code=503, detail="当前没有可用的 API Key")
 
@@ -2858,6 +3021,14 @@ def api_chat_stream(payload: ChatRequest, user_session: str | None = Cookie(defa
                 },
             )
         except Exception as exc:
+            log_chat_chain(
+                "stream_exception",
+                user_id=user["id"],
+                username=user["username"],
+                session_id=payload.session_id,
+                model=requested_model,
+                detail=get_exception_detail(exc),
+            )
             with closing(get_connection()) as rollback_connection:
                 if inserted_user is not None:
                     delete_message_files_by_ids(rollback_connection, [int(inserted_user["id"])])

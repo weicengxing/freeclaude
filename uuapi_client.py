@@ -55,6 +55,15 @@ DEFAULT_SYSTEM_PROMPT = [
 ]
 
 
+def mask_api_key(api_key: str | None) -> str:
+    value = str(api_key or "").strip()
+    if not value:
+        return "<empty>"
+    if len(value) <= 12:
+        return value[:4] + "..."
+    return value[:12] + "..."
+
+
 def resolve_api_key(explicit_api_key: str | None = None) -> str:
     api_key = (
         explicit_api_key
@@ -105,6 +114,27 @@ def build_headers(api_key: str, session_id: str) -> dict[str, str]:
 
 def create_httpx_client(timeout: httpx.Timeout) -> httpx.Client:
     return httpx.Client(timeout=timeout, http2=HTTP2_AVAILABLE)
+
+
+def log_upstream_request(
+    *,
+    mode: str,
+    url: str,
+    model: str,
+    session_id: str,
+    api_key: str,
+    message_count: int,
+) -> None:
+    logger.warning(
+        "UPSTREAM request mode=%s model=%s session_id=%s url=%s key=%s messages=%s http2=%s",
+        mode,
+        normalize_model(model),
+        session_id,
+        url,
+        mask_api_key(api_key),
+        message_count,
+        HTTP2_AVAILABLE,
+    )
 
 
 def extract_error_detail(response: httpx.Response) -> str:
@@ -237,13 +267,40 @@ def send_chat(
     headers = build_headers(resolved_api_key, resolved_session_id)
     url = f"{(base_url or DEFAULT_BASE_URL).rstrip('/')}/v1/messages?beta=true"
     timeout = httpx.Timeout(connect=30.0, read=300.0, write=300.0, pool=30.0)
+    started_at = time.perf_counter()
+    log_upstream_request(
+        mode="nonstream",
+        url=url,
+        model=model,
+        session_id=resolved_session_id,
+        api_key=resolved_api_key,
+        message_count=len(messages),
+    )
 
     with create_httpx_client(timeout) as client:
         response = client.post(url, headers=headers, json=payload)
         if response.is_error:
             detail = extract_error_detail(response)
+            logger.warning(
+                "UPSTREAM error mode=nonstream model=%s session_id=%s status=%s elapsed_ms=%.0f key=%s detail=%s",
+                normalize_model(model),
+                resolved_session_id,
+                response.status_code,
+                (time.perf_counter() - started_at) * 1000,
+                mask_api_key(resolved_api_key),
+                detail,
+            )
             raise RuntimeError(f"Upstream HTTP {response.status_code}: {detail}")
         data = response.json()
+        logger.warning(
+            "UPSTREAM success mode=nonstream model=%s session_id=%s status=%s elapsed_ms=%.0f key=%s response_model=%s",
+            normalize_model(model),
+            resolved_session_id,
+            response.status_code,
+            (time.perf_counter() - started_at) * 1000,
+            mask_api_key(resolved_api_key),
+            data.get("model", normalize_model(model)),
+        )
         return {
             "session_id": resolved_session_id,
             "model": data.get("model", normalize_model(model)),
@@ -275,10 +332,27 @@ def iter_stream_chat(
     timeout = httpx.Timeout(connect=30.0, read=300.0, write=300.0, pool=30.0)
 
     stream_started_at = time.perf_counter()
+    log_upstream_request(
+        mode="stream",
+        url=url,
+        model=model,
+        session_id=resolved_session_id,
+        api_key=resolved_api_key,
+        message_count=len(messages),
+    )
     with create_httpx_client(timeout) as client:
         with client.stream("POST", url, headers=headers, json=payload) as response:
             if response.is_error:
                 detail = extract_error_detail(response)
+                logger.warning(
+                    "UPSTREAM error mode=stream model=%s session_id=%s status=%s elapsed_ms=%.0f key=%s detail=%s",
+                    normalize_model(model),
+                    resolved_session_id,
+                    response.status_code,
+                    (time.perf_counter() - stream_started_at) * 1000,
+                    mask_api_key(resolved_api_key),
+                    detail,
+                )
                 raise RuntimeError(f"Upstream HTTP {response.status_code}: {detail}")
             headers_ready_ms = (time.perf_counter() - stream_started_at) * 1000
             if headers_ready_ms >= 1500:

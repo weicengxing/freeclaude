@@ -1,0 +1,16 @@
+2026-04-19 14:47:46,181 WARNING app CHAT route_stream user_id=1 username=admin session_id=af9091a5-898a-4494-8aad-433d31579399 model=claude-opus-4-6 message_len=2 images=0 files=0 replace_from_message_id=None
+2026-04-19 14:47:46,189 WARNING app CHAT stream_prepared user_id=1 username=admin session_id=af9091a5-898a-4494-8aad-433d31579399 model=claude-opus-4-6 key_pool=default history_count=0 request_message_count=1 retry_limit=24
+2026-04-19 14:47:46,194 WARNING app CHAT stream_attempt user_id=1 username=admin session_id=af9091a5-898a-4494-8aad-433d31579399 model=claude-opus-4-6 key_pool=default attempt=1 key_id=1 key=sk-d3905ad30...
+2026-04-19 14:47:46,194 WARNING uuapi_client UPSTREAM request mode=stream model=claude-opus-4-6 session_id=af9091a5-898a-4494-8aad-433d31579399 url=https://uuapi.net/v1/messages?beta=true key=sk-d3905ad30... messages=1 http2=False
+2026-04-19 14:48:06,077 WARNING uuapi_client UUAPI stream headers slow: 19883ms model=claude-opus-4-6 session_id=af9091a5-898a-4494-8aad-433d31579399
+2026-04-19 14:48:06,077 WARNING uuapi_client UUAPI first SSE line slow: 19883ms model=claude-opus-4-6 session_id=af9091a5-898a-4494-8aad-433d31579399
+2026-04-19 14:54:54,713 WARNING app CHAT route_stream user_id=1 username=admin session_id=3efa7480-9ba0-4305-97fc-65e08ab332b7 model=claude-opus-4-6 message_len=2 images=0 files=0 replace_from_message_id=None
+2026-04-19 14:54:54,728 WARNING app CHAT stream_prepared user_id=1 username=admin session_id=3efa7480-9ba0-4305-97fc-65e08ab332b7 model=claude-opus-4-6 key_pool=default history_count=0 request_message_count=1 retry_limit=24
+2026-04-19 14:54:54,735 WARNING app CHAT stream_attempt user_id=1 username=admin session_id=3efa7480-9ba0-4305-97fc-65e08ab332b7 model=claude-opus-4-6 key_pool=default attempt=1 key_id=1 key=sk-d3905ad30...
+2026-04-19 14:54:54,736 WARNING uuapi_client UPSTREAM request mode=stream model=claude-opus-4-6 session_id=3efa7480-9ba0-4305-97fc-65e08ab332b7 url=https://uuapi.net/v1/messages?beta=true key=sk-d3905ad30... messages=1 http2=False
+2026-04-19 14:56:00,625 WARNING uuapi_client UUAPI stream headers slow: 65890ms model=claude-opus-4-6 session_id=3efa7480-9ba0-4305-97fc-65e08ab332b7
+2026-04-19 14:56:00,625 WARNING uuapi_client UUAPI first SSE line slow: 65891ms model=claude-opus-4-6 session_id=3efa7480-9ba0-4305-97fc-65e08ab332b7
+2026-04-19 14:56:02,567 WARNING app CHAT stream_success user_id=1 username=admin session_id=3efa7480-9ba0-4305-97fc-65e08ab332b7 model=claude-opus-4-6 key_pool=default key_id=1 key=sk-d3905ad30... response_model=claude-opus-4-6 chars=46
+2026-04-19 14:56:31,686 WARNING app CHAT route_stream user_id=1 username=admin session_id=f32f36ef-c849-4108-9886-4d865aa0befe model=claude-opus-4-7 message_len=2 images=0 files=0 replace_from_message_id=None
+2026-04-19 14:56:31,700 WARNING app CHAT stream_prepared user_id=1 username=admin session_id=f32f36ef-c849-4108-9886-4d865aa0befe model=claude-opus-4-7 key_pool=opus47 history_count=0 request_message_count=1 retry_limit=1
+2026-04-19 14:56:31,708 WARNING app CHAT stream_exception user_id=1 username=admin session_id=f32f36ef-c849-4108-9886-4d865aa0befe model=claude-opus-4-7 detail=可分配的连续 API Key 不足 5 个
