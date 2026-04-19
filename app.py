@@ -54,7 +54,7 @@ PREMIUM_MODELS = {OPUS_47_MODEL}
 MODEL_OPTIONS = [
     {"value": "claude-opus-4-6", "label": "claude-opus-4-6"},
     {"value": "claude-sonnet-4-6", "label": "claude-sonnet-4-6"},
-    {"value": OPUS_47_MODEL, "label": "opus4.7"},
+    {"value": OPUS_47_MODEL, "label": OPUS_47_MODEL},
 ]
 VERIFY_CODE_TTL_MINUTES = 10
 VERIFY_PURPOSE_REGISTER = "register"
@@ -94,6 +94,10 @@ KEY_POOL_CONFIGS = {
         "user_batch_size_column": "opus47_api_key_batch_size",
         "source_url": OPUS47_KEY_SOURCE_URL,
     },
+}
+LOCAL_KEY_SOURCE_FILES = {
+    DEFAULT_KEY_SOURCE_URL: BASE_DIR / "key.txt",
+    OPUS47_KEY_SOURCE_URL: BASE_DIR / "keypromax.txt",
 }
 
 
@@ -1416,6 +1420,20 @@ def parse_api_keys_from_text(raw_text: str) -> list[str]:
     return unique_keys
 
 
+def read_api_key_source_text(source_url: str) -> tuple[str, str]:
+    local_path = LOCAL_KEY_SOURCE_FILES.get(source_url)
+    if local_path is not None and local_path.exists():
+        return local_path.read_text(encoding="utf-8"), str(local_path)
+
+    raw_url = normalize_github_raw_url(source_url)
+    try:
+        response = httpx.get(raw_url, timeout=30.0, follow_redirects=True)
+        response.raise_for_status()
+    except httpx.HTTPError as exc:
+        raise HTTPException(status_code=502, detail=f"Failed to fetch key file: {exc}") from exc
+    return response.text, raw_url
+
+
 def import_api_keys_from_url(
     connection: sqlite3.Connection,
     source_url: str,
@@ -1423,14 +1441,8 @@ def import_api_keys_from_url(
 ) -> dict:
     config = get_key_pool_config(key_pool)
     key_table = config["key_table"]
-    raw_url = normalize_github_raw_url(source_url)
-    try:
-        response = httpx.get(raw_url, timeout=30.0, follow_redirects=True)
-        response.raise_for_status()
-    except httpx.HTTPError as exc:
-        raise HTTPException(status_code=502, detail=f"Failed to fetch key file: {exc}") from exc
-
-    parsed_keys = parse_api_keys_from_text(response.text)
+    source_text, resolved_source = read_api_key_source_text(source_url)
+    parsed_keys = parse_api_keys_from_text(source_text)
     if not parsed_keys:
         raise HTTPException(status_code=400, detail="No valid keys found in the source file")
 
@@ -1453,7 +1465,7 @@ def import_api_keys_from_url(
     return {
         "pool": key_pool,
         "source_url": source_url,
-        "raw_url": raw_url,
+        "raw_url": resolved_source,
         "read_count": len(parsed_keys),
         "inserted_count": inserted_count,
         "ignored_count": len(parsed_keys) - inserted_count,
@@ -1694,15 +1706,27 @@ def is_api_key_quota_error(exc: Exception) -> bool:
 
     message_parts = [str(exc)]
     if isinstance(exc, httpx.HTTPStatusError):
-        message_parts.append(exc.response.text)
+        try:
+            message_parts.append(exc.response.read().decode("utf-8", errors="replace"))
+        except Exception:
+            pass
 
     normalized = " ".join(part.lower() for part in message_parts if part)
     keywords = (
         "quota",
+        "balance",
+        "invalid token",
+        "token is invalid",
+        "无效的令牌",
         "余额",
         "额度",
         "insufficient",
+        "insufficient balance",
         "credit",
+        "billing",
+        "payment",
+        "hard limit",
+        "exceeded your current quota",
         "rate limit",
         "api key has been disabled",
         "invalid x-api-key",
@@ -1715,6 +1739,13 @@ def is_api_key_quota_error(exc: Exception) -> bool:
 def get_exception_detail(exc: Exception) -> str:
     if isinstance(exc, HTTPException):
         return str(exc.detail)
+    if isinstance(exc, httpx.HTTPStatusError):
+        try:
+            body = exc.response.read().decode("utf-8", errors="replace").strip()
+        except Exception:
+            body = ""
+        if body:
+            return body
     return str(exc)
 
 
@@ -2101,6 +2132,34 @@ def extract_stream_text(chunk: dict) -> str:
         if delta.get("type") == "text_delta":
             return delta.get("text", "")
     return ""
+
+
+def extract_stream_error_detail(chunk: dict) -> str | None:
+    event_name = str(chunk.get("event", "") or "").strip().lower()
+    data = chunk.get("data", {})
+    if not isinstance(data, dict):
+        return None
+
+    nested_error = data.get("error")
+    if isinstance(nested_error, dict):
+        nested_message = str(
+            nested_error.get("message")
+            or nested_error.get("detail")
+            or nested_error.get("type")
+            or ""
+        ).strip()
+        if nested_message and (event_name == "error" or data.get("type") == "error"):
+            return nested_message
+
+    direct_message = str(data.get("message") or data.get("detail") or "").strip()
+    if direct_message and (event_name == "error" or data.get("type") == "error"):
+        return direct_message
+
+    if event_name == "error" or data.get("type") == "error":
+        serialized = json.dumps(data, ensure_ascii=False)
+        return serialized if serialized else "Unknown upstream stream error"
+
+    return None
 
 
 async def periodic_message_cleanup() -> None:
@@ -2761,6 +2820,9 @@ def api_chat_stream(payload: ChatRequest, user_session: str | None = Cookie(defa
                         session_id=payload.session_id,
                         api_key=key_record["api_key"],
                     ):
+                        stream_error_detail = extract_stream_error_detail(chunk)
+                        if stream_error_detail:
+                            raise RuntimeError(stream_error_detail)
                         response_model = chunk.get("data", {}).get("model", response_model)
                         text_delta = extract_stream_text(chunk)
                         if text_delta:
@@ -2805,4 +2867,12 @@ def api_chat_stream(payload: ChatRequest, user_session: str | None = Cookie(defa
                     restore_messages(rollback_connection, removed_suffix)
             yield sse_event("error", {"detail": get_exception_detail(exc)})
 
-    return StreamingResponse(event_stream(), media_type="text/event-stream")
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache, no-transform",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )

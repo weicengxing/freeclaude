@@ -1,12 +1,22 @@
 import json
+import importlib.util
+import logging
 import os
+import time
 import uuid
 from typing import Any, Iterator
 
 import httpx
 
 
-DEFAULT_BASE_URL = os.getenv("UUAPI_BASE_URL", "https://uuapi.net").rstrip("/")
+logger = logging.getLogger(__name__)
+HTTP2_AVAILABLE = importlib.util.find_spec("h2") is not None
+
+DEFAULT_BASE_URL = (
+    os.getenv("UUAPI_BASE_URL")
+    or os.getenv("ANTHROPIC_BASE_URL")
+    or "https://uuapi.net"
+).rstrip("/")
 DEFAULT_MODEL = "claude-opus-4-6"
 OPUS_47_MODEL = "claude-opus-4-7"
 SUPPORTED_MODELS = {"claude-opus-4-6", "claude-sonnet-4-6", OPUS_47_MODEL}
@@ -46,7 +56,12 @@ DEFAULT_SYSTEM_PROMPT = [
 
 
 def resolve_api_key(explicit_api_key: str | None = None) -> str:
-    api_key = explicit_api_key or os.getenv("UUAPI_API_KEY") or os.getenv("CLAUDE_PROXY_UPSTREAM_API_KEY", "")
+    api_key = (
+        explicit_api_key
+        or os.getenv("UUAPI_API_KEY")
+        or os.getenv("CLAUDE_PROXY_UPSTREAM_API_KEY")
+        or os.getenv("ANTHROPIC_AUTH_TOKEN", "")
+    )
     return api_key.strip()
 
 
@@ -86,6 +101,42 @@ def build_headers(api_key: str, session_id: str) -> dict[str, str]:
         "sec-fetch-mode": "cors",
         "accept-encoding": "gzip, deflate",
     }
+
+
+def create_httpx_client(timeout: httpx.Timeout) -> httpx.Client:
+    return httpx.Client(timeout=timeout, http2=HTTP2_AVAILABLE)
+
+
+def extract_error_detail(response: httpx.Response) -> str:
+    try:
+        raw_bytes = response.read()
+    except Exception:
+        raw_bytes = b""
+
+    text = raw_bytes.decode("utf-8", errors="replace").strip()
+    if text:
+        try:
+            data = json.loads(text)
+        except json.JSONDecodeError:
+            return text
+
+        if isinstance(data, dict):
+            error_data = data.get("error")
+            if isinstance(error_data, dict):
+                message = str(
+                    error_data.get("message")
+                    or error_data.get("detail")
+                    or error_data.get("type")
+                    or ""
+                ).strip()
+                if message:
+                    return message
+            message = str(data.get("message") or data.get("detail") or "").strip()
+            if message:
+                return message
+        return text
+
+    return f"HTTP {response.status_code}"
 
 
 def to_claude_message(message: dict[str, Any]) -> dict[str, Any]:
@@ -187,9 +238,11 @@ def send_chat(
     url = f"{(base_url or DEFAULT_BASE_URL).rstrip('/')}/v1/messages?beta=true"
     timeout = httpx.Timeout(connect=30.0, read=300.0, write=300.0, pool=30.0)
 
-    with httpx.Client(timeout=timeout) as client:
+    with create_httpx_client(timeout) as client:
         response = client.post(url, headers=headers, json=payload)
-        response.raise_for_status()
+        if response.is_error:
+            detail = extract_error_detail(response)
+            raise RuntimeError(f"Upstream HTTP {response.status_code}: {detail}")
         data = response.json()
         return {
             "session_id": resolved_session_id,
@@ -214,13 +267,35 @@ def iter_stream_chat(
     payload = build_payload(messages, model, resolved_session_id, stream=True)
     headers = build_headers(resolved_api_key, resolved_session_id)
     headers["accept"] = "text/event-stream"
+    # Streaming responses are latency-sensitive; compression often causes the
+    # first SSE event to be buffered for too long by proxies/CDNs.
+    headers["accept-encoding"] = "identity"
+    headers["cache-control"] = "no-cache"
     url = f"{(base_url or DEFAULT_BASE_URL).rstrip('/')}/v1/messages?beta=true"
     timeout = httpx.Timeout(connect=30.0, read=300.0, write=300.0, pool=30.0)
 
-    with httpx.Client(timeout=timeout) as client:
+    stream_started_at = time.perf_counter()
+    with create_httpx_client(timeout) as client:
         with client.stream("POST", url, headers=headers, json=payload) as response:
-            response.raise_for_status()
+            if response.is_error:
+                detail = extract_error_detail(response)
+                raise RuntimeError(f"Upstream HTTP {response.status_code}: {detail}")
+            headers_ready_ms = (time.perf_counter() - stream_started_at) * 1000
+            if headers_ready_ms >= 1500:
+                logger.warning(
+                    "UUAPI stream headers slow: %.0fms model=%s session_id=%s",
+                    headers_ready_ms,
+                    normalize_model(model),
+                    resolved_session_id,
+                )
+            elif not HTTP2_AVAILABLE:
+                logger.info(
+                    "HTTP/2 unavailable, using HTTP/1.1 for stream model=%s session_id=%s",
+                    normalize_model(model),
+                    resolved_session_id,
+                )
             current_event = "message"
+            first_event_logged = False
 
             for raw_line in response.iter_lines():
                 if not raw_line:
@@ -229,6 +304,17 @@ def iter_stream_chat(
                 line = raw_line.strip()
                 if not line:
                     continue
+
+                if not first_event_logged:
+                    first_event_logged = True
+                    first_event_ms = (time.perf_counter() - stream_started_at) * 1000
+                    if first_event_ms >= 1500:
+                        logger.warning(
+                            "UUAPI first SSE line slow: %.0fms model=%s session_id=%s",
+                            first_event_ms,
+                            normalize_model(model),
+                            resolved_session_id,
+                        )
 
                 if line.startswith("event:"):
                     current_event = line.split(":", 1)[1].strip()

@@ -1,215 +1,4 @@
-<!DOCTYPE html>
-<html lang="zh-CN">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>UUAPI Chat</title>
-    <link rel="stylesheet" href="/static/app.css?v=20260419d">
-</head>
-<body>
-    <div class="shell">
-        <aside class="sidebar">
-            <div class="brand">
-                <h1>UUAPI Chat</h1>
-                <div class="helper">登录后即可使用独立聊天记录，每个用户只看到自己的会话。</div>
-            </div>
 
-            <div class="toolbar">
-                <button id="new-chat-btn" class="primary-btn" type="button">新对话</button>
-                <select id="model-select">
-                    {% for model in models %}
-                    <option value="{{ model.value }}" {% if model.value == default_model %}selected{% endif %}>{{ model.label }}</option>
-                    {% endfor %}
-                </select>
-            </div>
-            <div id="model-note" class="helper">Opus 4.7：适合更复杂的推理和更高质量生成，仅 SuperAdmin 和付费用户可用。</div>
-            <div>
-                <div id="auth-user" class="session-title">未登录</div>
-                <div id="auth-meta" class="meta-text">请先登录后再开始聊天。</div>
-            </div>
-
-            <div class="nav-group">
-                <button id="chat-view-btn" class="nav-btn active" type="button">聊天中心</button>
-                <button id="db-view-btn" class="nav-btn hidden" type="button">数据库管理</button>
-            </div>
-            <div class="toolbar">
-                <button id="rename-session-btn" class="secondary-btn" type="button" disabled>重命名</button>
-                <button id="delete-session-btn" class="danger-btn" type="button" disabled>删除会话</button>
-            </div>
-            <div id="session-list" class="session-list"></div>
-        </aside>
-        <main class="panel workspace-panel">
-            <section id="chat-view" class="main-view chat-view">
-                <header class="header-row workspace-header">
-                    <div>
-                        <div id="chat-title" class="session-title">新对话</div>
-                        <div id="chat-subtitle" class="meta-text">登录后历史会话会保存在 SQLite 中。</div>
-                    </div>
-                    <div class="auth-actions">
-                        <button id="import-opus47-keys-btn" class="secondary-btn hidden" type="button">导入 Opus4.7 Key</button>
-                        <button id="import-keys-btn" class="secondary-btn hidden" type="button">导入</button>
-                        <button id="admin-btn" class="secondary-btn hidden" type="button">用户管理</button>
-                        <button id="show-auth-btn" class="secondary-btn hidden" type="button">登录 / 注册</button>
-                        <button id="logout-btn" class="secondary-btn hidden" type="button">退出登录</button>
-                    </div>
-                </header>
-
-                <section id="messages" class="messages"></section>
-
-                <form id="chat-form" class="composer">
-                    <textarea id="message-input" placeholder="输入你的问题，按 Ctrl+Enter 发送"></textarea>
-                    <input id="image-input" class="hidden" type="file" accept="image/jpeg,image/png,image/webp,image/gif,text/plain,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,.txt,.pdf,.docx" multiple>
-                    <div id="composer-drop-hint" class="helper composer-drop-hint">也可以直接把图片、TXT、DOCX、PDF 拖到这里，或者直接粘贴附件</div>
-                    <div id="composer-image-preview" class="composer-image-preview hidden">
-                        <div id="composer-image-list" class="composer-image-list"></div>
-                        <div class="composer-image-meta">
-                            <div id="composer-image-name" class="helper"></div>
-                            <button id="remove-image-btn" class="ghost-btn" type="button">移除附件</button>
-                        </div>
-                    </div>
-                    <div class="composer-row">
-                        <div class="composer-tools">
-                            <button id="attach-image-btn" class="secondary-btn" type="button">上传附件</button>
-                            <span id="status-text" class="status-text">正在检查登录状态...</span>
-                        </div>
-                        <button id="send-btn" class="primary-btn" type="submit">发送</button>
-                    </div>
-                </form>
-            </section>
-
-            <section id="db-view" class="main-view db-view hidden">
-                <header class="header-row page-card db-header-card">
-                    <div>
-                        <div class="session-title">数据库管理</div>
-                        <div class="meta-text">SuperAdmin 可以像后台表格一样切换数据表、查看记录并直接编辑。</div>
-                    </div>
-                    <div class="auth-actions">
-                        <button id="db-refresh-btn" class="secondary-btn" type="button">刷新表结构</button>
-                        <button id="db-back-chat-btn" class="ghost-btn" type="button">返回聊天</button>
-                    </div>
-                </header>
-
-                <div class="db-page-shell">
-                    <aside class="db-side-panel page-card">
-                        <div class="session-title">数据表</div>
-                        <div id="admin-db-tables" class="admin-db-tables"></div>
-                    </aside>
-
-                    <section class="db-main-panel">
-                        <div class="admin-db-toolbar page-card compact-card">
-                            <div class="admin-db-filters">
-                                <input id="db-search-input" type="text" placeholder="输入关键字即可筛选当前表数据">
-                                <button id="db-search-btn" class="primary-btn" type="button">查询</button>
-                                <button id="db-clear-search-btn" class="ghost-btn" type="button">重置</button>
-                            </div>
-                            <div class="admin-db-actions">
-                                <button id="refresh-db-btn" class="secondary-btn" type="button">刷新表</button>
-                                <button id="insert-db-row-btn" class="secondary-btn" type="button">新增记录</button>
-                                <button id="refresh-db-rows-btn" class="secondary-btn" type="button">刷新数据</button>
-                            </div>
-                            <div id="admin-status" class="admin-db-toolbar-meta"></div>
-                        </div>
-
-                        <div id="admin-db-rows" class="admin-db-rows page-card"></div>
-                    </section>
-                </div>
-            </section>
-        </main>
-    </div>
-
-    <div id="image-lightbox" class="image-lightbox hidden">
-        <button id="image-lightbox-close" class="image-lightbox-close" type="button">关闭</button>
-        <img id="image-lightbox-img" class="image-lightbox-img" alt="Preview image">
-    </div>
-
-    <div id="auth-overlay" class="auth-overlay hidden">
-        <div class="auth-card">
-            <div class="header-row">
-                <div>
-                    <div class="session-title">账号中心</div>
-                    <div class="helper">默认会自动创建两个 SuperAdmin 账号：admin / admin123456、root / admin123456。</div>
-                </div>
-                <button id="close-auth-btn" class="ghost-btn" type="button">关闭</button>
-            </div>
-
-            <div class="tab-row">
-                <button class="tab-btn active" type="button" data-tab="login">登录</button>
-                <button class="tab-btn" type="button" data-tab="register">注册</button>
-                <button class="tab-btn" type="button" data-tab="reset">找回密码</button>
-            </div>
-
-            <form id="login-form" class="form-grid auth-form">
-                <input name="username" placeholder="用户名或邮箱" required>
-                <input name="password" type="password" placeholder="密码" required>
-                <button class="primary-btn" type="submit">登录</button>
-            </form>
-
-            <form id="register-form" class="form-grid auth-form hidden">
-                <input name="username" placeholder="用户名" required>
-                <input name="email" type="email" placeholder="邮箱" required>
-                <div class="inline-grid">
-                    <input name="verifyCode" placeholder="验证码" required>
-                    <button id="send-register-code-btn" class="secondary-btn" type="button">发验证码</button>
-                </div>
-                <input name="password" type="password" placeholder="密码（至少 6 位）" required>
-                <input name="confirmPassword" type="password" placeholder="确认密码" required>
-                <button class="primary-btn" type="submit">注册</button>
-            </form>
-
-            <form id="reset-form" class="form-grid auth-form hidden">
-                <input name="email" type="email" placeholder="注册邮箱" required>
-                <div class="inline-grid">
-                    <input name="verifyCode" placeholder="验证码" required>
-                    <button id="send-reset-code-btn" class="secondary-btn" type="button">发验证码</button>
-                </div>
-                <input name="password" type="password" placeholder="新密码" required>
-                <input name="confirmPassword" type="password" placeholder="确认新密码" required>
-                <button class="primary-btn" type="submit">重置密码</button>
-            </form>
-
-            <div id="auth-status" class="helper"></div>
-        </div>
-    </div>
-
-    <div id="admin-overlay" class="admin-overlay hidden">
-        <div class="admin-card">
-            <div class="header-row">
-                <div>
-                    <div class="session-title">用户管理</div>
-                    <div class="helper">只有 SuperAdmin 可以查看全部用户并启用或禁用账号。</div>
-                </div>
-                <div class="auth-actions">
-                    <button id="refresh-admin-btn" class="secondary-btn" type="button">刷新</button>
-                    <button id="close-admin-btn" class="ghost-btn" type="button">关闭</button>
-                </div>
-            </div>
-            <div id="admin-status-overlay" class="helper"></div>
-
-            <div id="admin-users-panel" class="admin-panel">
-                <div id="admin-user-list" class="admin-list"></div>
-            </div>
-        </div>
-    </div>
-
-    <div id="db-modal-overlay" class="db-modal-overlay hidden">
-        <div class="db-modal-card">
-            <div class="header-row">
-                <div>
-                    <div id="db-modal-title" class="session-title">记录详情</div>
-                    <div id="db-modal-subtitle" class="helper">按字段填写后保存。</div>
-                </div>
-                <button id="close-db-modal-btn" class="ghost-btn" type="button">关闭</button>
-            </div>
-            <div id="db-modal-status" class="helper"></div>
-            <div id="db-modal-grid" class="db-modal-grid"></div>
-            <div class="db-modal-actions">
-                <button id="cancel-db-modal-btn" class="ghost-btn" type="button">取消</button>
-                <button id="save-db-modal-btn" class="primary-btn" type="button">保存</button>
-            </div>
-        </div>
-    </div>
-
-    <script>
         const state = {
             auth: null,
             currentView: "chat",
@@ -301,9 +90,8 @@
         };
         const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
         const MAX_DOCUMENT_BYTES = 10 * 1024 * 1024;
-        const UPSTREAM_WAITING_TEXT = "正在等待上游首包响应，请稍候...";
-        const REQUEST_ACCEPTED_TEXT = "请求已提交，正在连接上游...";
-        const UPSTREAM_CONNECTED_TEXT = "上游已开始返回内容，正在生成回复...";
+        const UPSTREAM_WAITING_TEXT = "正在等待上游响应，通常需要 40-60 秒，请稍候...";
+        const UPSTREAM_CONNECTED_TEXT = "已连接上游，正在生成回复...";
         let composerDragDepth = 0;
 
         function uid() {
@@ -389,18 +177,6 @@
 
         function formatMessageContent(message) {
             return escapeHtml(getDisplayContent(message)).replaceAll("\n", "<br>");
-        }
-
-        function isPersistedMessageId(messageId) {
-            if (typeof messageId === "number") {
-                return Number.isInteger(messageId);
-            }
-            return /^\d+$/.test(String(messageId || "").trim());
-        }
-
-        function buildLocalErrorMessage(detail) {
-            const normalized = String(detail || "").trim() || "发送失败";
-            return `发送失败：${normalized}`;
         }
 
         function getMessageImages(message) {
@@ -543,22 +319,12 @@
             scope.querySelectorAll("[data-delete-message]").forEach((button) => {
                 if (button.dataset.boundDelete === "1") return;
                 button.dataset.boundDelete = "1";
-                button.addEventListener("click", async () => {
-                    if (!isPersistedMessageId(button.dataset.deleteMessage)) {
-                        setStatus("这条消息还未保存，请等待本轮回复结束后再操作。");
-                        return;
-                    }
-                    await deleteMessageFrom(Number(button.dataset.deleteMessage));
-                });
+                button.addEventListener("click", async () => deleteMessageFrom(Number(button.dataset.deleteMessage)));
             });
             scope.querySelectorAll("[data-edit-message]").forEach((button) => {
                 if (button.dataset.boundEdit === "1") return;
                 button.dataset.boundEdit = "1";
                 button.addEventListener("click", async () => {
-                    if (!isPersistedMessageId(button.dataset.editMessage)) {
-                        setStatus("这条消息还未保存，请等待本轮回复结束后再编辑。");
-                        return;
-                    }
                     const target = state.messages.find((item) => item.id === Number(button.dataset.editMessage));
                     if (target) {
                         await editAndResendMessage(target);
@@ -570,82 +336,6 @@
                 image.dataset.boundZoom = "1";
                 image.addEventListener("click", () => openImageLightbox(image.dataset.previewSrc || image.getAttribute("src") || ""));
             });
-        }
-
-        function enableHorizontalDragScroll(container) {
-            if (!container || container.dataset.boundDragScroll === "1") {
-                return;
-            }
-            container.dataset.boundDragScroll = "1";
-
-            let dragging = false;
-            let startX = 0;
-            let startScrollLeft = 0;
-            let suppressClick = false;
-            let activePointerId = null;
-
-            const stopDragging = () => {
-                dragging = false;
-                activePointerId = null;
-                container.classList.remove("dragging");
-            };
-
-            container.addEventListener("pointerdown", (event) => {
-                if (event.button !== 0) {
-                    return;
-                }
-                if (event.target.closest("button, input, textarea, select, a")) {
-                    return;
-                }
-                if (container.scrollWidth <= container.clientWidth) {
-                    return;
-                }
-                dragging = true;
-                suppressClick = false;
-                startX = event.clientX;
-                startScrollLeft = container.scrollLeft;
-                activePointerId = event.pointerId;
-                container.classList.add("dragging");
-                if (container.setPointerCapture && activePointerId != null) {
-                    try {
-                        container.setPointerCapture(activePointerId);
-                    } catch (_) {}
-                }
-                event.preventDefault();
-            });
-
-            container.addEventListener("pointermove", (event) => {
-                if (!dragging) {
-                    return;
-                }
-                const deltaX = event.clientX - startX;
-                if (Math.abs(deltaX) > 4) {
-                    suppressClick = true;
-                }
-                container.scrollLeft = startScrollLeft - deltaX;
-                event.preventDefault();
-            });
-
-            container.addEventListener("pointerup", () => {
-                stopDragging();
-            });
-
-            container.addEventListener("pointercancel", () => {
-                stopDragging();
-            });
-
-            container.addEventListener("lostpointercapture", () => {
-                stopDragging();
-            });
-
-            container.addEventListener("click", (event) => {
-                if (!suppressClick) {
-                    return;
-                }
-                suppressClick = false;
-                event.preventDefault();
-                event.stopPropagation();
-            }, true);
         }
 
         function openImageLightbox(src) {
@@ -951,23 +641,6 @@ function renderMessages() {
             ];
             renderMessages();
             return messageId;
-        }
-
-        function restoreComposerDraft(message = "", images = [], files = []) {
-            messageInputEl.value = message || "";
-            state.selectedImages = cloneImages(images);
-            state.selectedFiles = cloneFiles(files);
-            state.selectedImage = state.selectedImages[0] || null;
-            renderComposerImage();
-        }
-
-        function showAssistantError(messageId, detail) {
-            const content = buildLocalErrorMessage(detail);
-            if (messageId && state.messages.some((item) => item.id === messageId)) {
-                updateLocalMessage(messageId, content);
-                return;
-            }
-            appendLocalMessage("assistant", content);
         }
 
         async function fetchJson(url, options = {}) {
@@ -1334,12 +1007,12 @@ function renderMessages() {
 
             const columns = tableInfo.columns || [];
             adminDbRowsEl.innerHTML = `
-                <div class="admin-db-table-wrap" style="overflow-x:auto; overflow-y:auto; -webkit-overflow-scrolling:touch; touch-action:pan-x pan-y;">
-                    <table class="admin-db-table-grid" style="width:max-content; min-width:100%; table-layout:auto;">
+                <div class="admin-db-table-wrap">
+                    <table class="admin-db-table-grid">
                         <thead>
                             <tr>
                                 <th>NO.</th>
-                                ${columns.map((column) => `<th style="white-space:nowrap;">${escapeHtml(column.name)}</th>`).join("")}
+                                ${columns.map((column) => `<th>${escapeHtml(column.name)}</th>`).join("")}
                                 <th>操作</th>
                             </tr>
                         </thead>
@@ -1349,8 +1022,8 @@ function renderMessages() {
                                     class="${JSON.stringify(row) === JSON.stringify(state.selectedAdminRow) ? "active" : ""}"
                                     data-db-row-index="${index}"
                                 >
-                                    <td style="white-space:nowrap;">${index + 1}</td>
-                                    ${columns.map((column) => `<td style="white-space:nowrap; word-break:normal; overflow-wrap:normal;" title="${escapeHtml(String(row[column.name] ?? ""))}">${escapeHtml(String(row[column.name] ?? ""))}</td>`).join("")}
+                                    <td>${index + 1}</td>
+                                    ${columns.map((column) => `<td title="${escapeHtml(String(row[column.name] ?? ""))}">${escapeHtml(String(row[column.name] ?? ""))}</td>`).join("")}
                                     <td class="actions">
                                         <button class="table-action-btn view" type="button" data-db-view="${index}">查看</button>
                                         <button class="table-action-btn edit" type="button" data-db-edit="${index}">编辑</button>
@@ -1362,8 +1035,6 @@ function renderMessages() {
                     </table>
                 </div>
             `;
-
-            enableHorizontalDragScroll(adminDbRowsEl.querySelector(".admin-db-table-wrap"));
 
             adminDbRowsEl.querySelectorAll("[data-db-row-index]").forEach((rowEl) => {
                 rowEl.addEventListener("click", () => {
@@ -2113,7 +1784,6 @@ function renderMessages() {
                 const decoder = new TextDecoder("utf-8");
                 let buffer = "";
                 let assistantText = "";
-                let streamDone = false;
 
                 while (true) {
                     const { value, done } = await reader.read();
@@ -2139,18 +1809,14 @@ function renderMessages() {
                             state.sessionId = payload.session.id;
                             chatTitleEl.textContent = payload.session.title;
                             chatSubtitleEl.textContent = payload.session.id;
-                            updateLocalMessage(state.currentAssistantMessageId, REQUEST_ACCEPTED_TEXT);
-                            setStatus(REQUEST_ACCEPTED_TEXT);
+                            updateLocalMessage(state.currentAssistantMessageId, UPSTREAM_CONNECTED_TEXT);
+                            setStatus(UPSTREAM_CONNECTED_TEXT);
                         }
                         if (eventName === "delta") {
-                            if (!assistantText) {
-                                setStatus(UPSTREAM_CONNECTED_TEXT);
-                            }
                             assistantText += payload.text || "";
                             updateLocalMessage(state.currentAssistantMessageId, assistantText);
                         }
                         if (eventName === "done") {
-                            streamDone = true;
                             assistantText = payload.reply || assistantText;
                             updateLocalMessage(state.currentAssistantMessageId, assistantText);
                             if (payload.session) {
@@ -2165,9 +1831,6 @@ function renderMessages() {
                             throw new Error(payload.detail || "重发失败");
                         }
                     }
-                }
-                if (!streamDone) {
-                    throw new Error("连接已中断，请重试");
                 }
             } catch (error) {
                 state.messages = previousMessages;
@@ -2228,7 +1891,6 @@ function renderMessages() {
                 const decoder = new TextDecoder("utf-8");
                 let buffer = "";
                 let assistantText = "";
-                let streamDone = false;
 
                 while (true) {
                     const { value, done } = await reader.read();
@@ -2254,46 +1916,34 @@ function renderMessages() {
                             state.sessionId = payload.session.id;
                             chatTitleEl.textContent = payload.session.title;
                             chatSubtitleEl.textContent = payload.session.id;
-                            updateLocalMessage(state.currentAssistantMessageId, REQUEST_ACCEPTED_TEXT);
-                            setStatus(REQUEST_ACCEPTED_TEXT);
+                            updateLocalMessage(state.currentAssistantMessageId, UPSTREAM_CONNECTED_TEXT);
+                            setStatus(UPSTREAM_CONNECTED_TEXT);
                         }
                         if (eventName === "delta") {
-                            if (!assistantText) {
-                                setStatus(UPSTREAM_CONNECTED_TEXT);
-                            }
                             assistantText += payload.text || "";
                             updateLocalMessage(state.currentAssistantMessageId, assistantText);
                         }
                         if (eventName === "done") {
-                            streamDone = true;
                             assistantText = payload.reply || assistantText;
                             updateLocalMessage(state.currentAssistantMessageId, assistantText);
                             if (payload.session) {
                                 chatTitleEl.textContent = payload.session.title;
                                 chatSubtitleEl.textContent = payload.session.id;
                             }
+                            await refreshSessions();
                         }
                         if (eventName === "error") {
                             throw new Error(payload.detail || "发送失败");
                         }
                     }
                 }
-                if (!streamDone) {
-                    throw new Error("连接已中断，请重试");
-                }
-                if (state.sessionId) {
-                    try {
-                        await refreshSessions();
-                        await loadSession(state.sessionId);
-                    } catch (syncError) {
-                        console.error("Failed to sync session after streaming reply", syncError);
-                    }
-                }
             } catch (error) {
-                const failedMessage = error.message || "发送失败";
-                restoreComposerDraft(pendingMessage, selectedImages, selectedFiles);
-                showAssistantError(state.currentAssistantMessageId, failedMessage);
-                queueMicrotask(() => setStatus(`${failedMessage}，已保留本地消息，可修改后重试。`));
+                state.messages = state.messages.slice(0, -2);
+                state.selectedImages = selectedImages;
+                state.selectedFiles = selectedFiles;
+                state.selectedImage = selectedImages[0] || null;
+                renderComposerImage();
+                renderMessages();
                 setStatus(error.message || "发送失败");
             } finally {
                 state.currentAssistantMessageId = null;
@@ -2322,6 +1972,4 @@ function renderMessages() {
         }
 
         init();
-    </script>
-</body>
-</html>
+    

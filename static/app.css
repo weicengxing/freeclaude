@@ -346,6 +346,7 @@ select {
     display: grid;
     gap: 16px;
     min-height: 0;
+    min-width: 0;
     align-content: start;
 }
 
@@ -712,12 +713,14 @@ select {
     grid-template-columns: minmax(220px, 260px) minmax(0, 1fr);
     gap: 16px;
     min-height: 0;
+    min-width: 0;
     align-items: start;
 }
 
 .db-side-panel,
 .db-main-panel {
     min-height: 0;
+    min-width: 0;
 }
 
 .db-side-panel {
@@ -731,6 +734,7 @@ select {
     display: grid;
     gap: 14px;
     grid-template-rows: auto minmax(0, 1fr);
+    min-width: 0;
 }
 
 .db-header-card {
@@ -771,6 +775,11 @@ select {
     font-size: 13px;
 }
 
+.admin-db-toolbar,
+.admin-db-rows {
+    min-width: 0;
+}
+
 .admin-db-tables {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
@@ -807,19 +816,30 @@ select {
 }
 
 .admin-db-table-wrap {
-    overflow: auto;
+    max-width: 100%;
+    overflow-x: auto;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    touch-action: pan-x pan-y;
+    cursor: grab;
     border-radius: 20px;
     border: 1px solid rgba(120, 90, 50, 0.12);
     background: rgba(255, 255, 255, 0.84);
     box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.6);
 }
 
+.admin-db-table-wrap.dragging {
+    cursor: grabbing;
+    user-select: none;
+}
+
 .admin-db-table-grid {
-    width: 100%;
-    min-width: 720px;
+    width: max-content;
+    min-width: 100%;
     border-collapse: separate;
     border-spacing: 0;
     font-size: 14px;
+    table-layout: auto;
 }
 
 .admin-db-table-grid thead th {
@@ -841,8 +861,10 @@ select {
     vertical-align: top;
     line-height: 1.55;
     border-bottom: 1px solid rgba(120, 90, 50, 0.08);
-    word-break: break-word;
-    max-width: 260px;
+    white-space: nowrap;
+    word-break: normal;
+    overflow-wrap: normal;
+    max-width: none;
 }
 
 .admin-db-table-grid tbody tr {
