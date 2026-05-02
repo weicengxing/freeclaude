@@ -1,6 +1,5 @@
 import json
 import logging
-import time
 import threading
 from datetime import datetime
 from datetime import timedelta
@@ -25,6 +24,9 @@ from send_codex_request import (
 
 
 CONFIG_PATH = Path("codex_profiles.json")
+LOG_PATH = Path("codex_proxy.log")
+LAST_REQUEST_PATH = Path("codex_proxy_last_request.json")
+LAST_STREAM_EVENT_PATH = Path("codex_proxy_last_stream_event.json")
 CODEX_CLIENT_ID = "app_EMoamEEZ73f0CkXaXp7hrann"
 REFRESH_TOKEN_URL = "https://auth.openai.com/oauth/token"
 TOKEN_REFRESH_INTERVAL = timedelta(days=8)
@@ -37,6 +39,11 @@ _maintenance_thread: threading.Thread | None = None
 _maintenance_stop = threading.Event()
 _response_profiles: dict[str, str] = {}
 logger = logging.getLogger("codex_request_service")
+if not logger.handlers:
+    handler = logging.FileHandler(LOG_PATH, encoding="utf-8")
+    handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
+    logger.addHandler(handler)
+logger.setLevel(logging.INFO)
 
 
 def load_service_config(path: Path = CONFIG_PATH) -> dict[str, Any]:
@@ -50,6 +57,54 @@ def save_service_config(config: dict[str, Any], path: Path = CONFIG_PATH) -> Non
     with path.open("w", encoding="utf-8") as file:
         json.dump(config, file, ensure_ascii=False, indent=2)
         file.write("\n")
+
+
+def safe_json_dump(path: Path, value: Any) -> None:
+    with path.open("w", encoding="utf-8") as file:
+        json.dump(value, file, ensure_ascii=False, indent=2)
+
+
+def redact_for_log(value: Any) -> Any:
+    if isinstance(value, dict):
+        redacted = {}
+        for key, item in value.items():
+            lowered = str(key).lower()
+            if any(token in lowered for token in ("token", "authorization", "api_key", "cookie")):
+                redacted[key] = "<redacted>"
+            else:
+                redacted[key] = redact_for_log(item)
+        return redacted
+    if isinstance(value, list):
+        return [redact_for_log(item) for item in value]
+    if isinstance(value, str) and len(value) > 2000:
+        return f"<redacted large string: {len(value)} chars>"
+    return value
+
+
+def request_summary(body: dict[str, Any]) -> dict[str, Any]:
+    input_value = body.get("input")
+    tools = body.get("tools")
+    return {
+        "model": body.get("model"),
+        "stream": body.get("stream"),
+        "store": body.get("store"),
+        "previous_response_id": body.get("previous_response_id"),
+        "input_type": type(input_value).__name__,
+        "input_count": len(input_value) if isinstance(input_value, list) else None,
+        "tool_count": len(tools) if isinstance(tools, list) else None,
+        "tool_names": [
+            tool.get("name") or tool.get("type")
+            for tool in tools
+            if isinstance(tool, dict)
+        ][:20] if isinstance(tools, list) else [],
+        "has_instructions": bool(body.get("instructions")),
+        "reasoning": body.get("reasoning"),
+    }
+
+
+def log_responses_request(body: dict[str, Any]) -> None:
+    logger.info("responses_request %s", json.dumps(request_summary(body), ensure_ascii=False))
+    safe_json_dump(LAST_REQUEST_PATH, redact_for_log(body))
 
 
 def utc_now() -> datetime:
@@ -320,6 +375,13 @@ def is_quota_or_balance_error(status_code: int, details: str) -> bool:
     return any(marker in lowered for marker in markers)
 
 
+def is_quota_or_balance_error_text(status_code: int, details: str) -> bool:
+    if is_quota_or_balance_error(status_code, details):
+        return True
+    lowered = details.lower()
+    return any(marker in lowered for marker in ("余额", "额度", "限额", "次数"))
+
+
 def refresh_chatgpt_tokens(profile: dict[str, Any]) -> dict[str, bool]:
     tokens = profile.get("tokens")
     if not isinstance(tokens, dict):
@@ -408,7 +470,7 @@ def open_upstream_with_failover(
             return profile, base_url, response
         except HTTPError as exc:
             details = read_http_error(exc)
-            if is_quota_or_balance_error(exc.code, details):
+            if is_quota_or_balance_error_text(exc.code, details):
                 last_error = (exc.code, details)
                 continue
             raise HTTPException(status_code=exc.code, detail=details) from exc
@@ -420,26 +482,42 @@ def open_upstream_with_failover(
 
 
 def remember_response_profile(raw_line: bytes, profile: dict[str, Any]) -> None:
-    try:
-        line = raw_line.decode("utf-8", errors="replace").strip()
-    except Exception:
-        return
-    if not line.startswith("data:"):
-        return
-
-    data = line.removeprefix("data:").strip()
-    if not data or data == "[DONE]":
-        return
-
-    try:
-        payload = json.loads(data)
-    except json.JSONDecodeError:
+    event = parse_sse_event(raw_line)
+    payload = event.get("payload")
+    if not isinstance(payload, dict):
         return
 
     response = payload.get("response") if isinstance(payload, dict) else None
     response_id = response.get("id") if isinstance(response, dict) else None
     if isinstance(response_id, str):
         _response_profiles[response_id] = profile_name(profile)
+
+
+def parse_sse_event(raw_line: bytes) -> dict[str, Any]:
+    try:
+        line = raw_line.decode("utf-8", errors="replace").strip()
+    except Exception:
+        return {}
+    if line.startswith("event:"):
+        return {"event": line.removeprefix("event:").strip()}
+    if not line.startswith("data:"):
+        return {}
+
+    data = line.removeprefix("data:").strip()
+    if not data or data == "[DONE]":
+        return {"done": data == "[DONE]"}
+
+    try:
+        payload = json.loads(data)
+    except json.JSONDecodeError:
+        return {}
+
+    event_type = payload.get("type") if isinstance(payload, dict) else None
+    return {"event": event_type, "payload": payload}
+
+
+def sse_error(message: str) -> bytes:
+    return f"event: error\ndata: {json.dumps({'error': message}, ensure_ascii=False)}\n\n".encode("utf-8")
 
 
 def urllib_error_to_http(exc: HTTPError) -> HTTPException:
@@ -481,19 +559,62 @@ def stream_upstream(
     codex_body: dict[str, Any],
     timeout: int,
 ):
+    completed = False
+    response_id = None
     try:
         profile, _, res = open_upstream_with_failover(service_config, codex_body, timeout)
+        logger.info(
+            "stream_start %s",
+            json.dumps(
+                {
+                    "profile": profile_name(profile),
+                    "model": codex_body.get("model"),
+                    "input_type": type(codex_body.get("input")).__name__,
+                    "previous_response_id": codex_body.get("previous_response_id"),
+                    "tool_count": len(codex_body.get("tools") or []),
+                },
+                ensure_ascii=False,
+            ),
+        )
         with res:
             for raw_line in res:
                 remember_response_profile(raw_line, profile)
+                event = parse_sse_event(raw_line)
+                payload = event.get("payload")
+                if isinstance(payload, dict):
+                    safe_json_dump(LAST_STREAM_EVENT_PATH, redact_for_log(payload))
+                    response = payload.get("response")
+                    if isinstance(response, dict) and isinstance(response.get("id"), str):
+                        response_id = response["id"]
+                    if payload.get("type") == "response.completed":
+                        completed = True
                 yield raw_line
+        logger.info(
+            "stream_end %s",
+            json.dumps({"response_id": response_id, "completed": completed}, ensure_ascii=False),
+        )
+    except GeneratorExit:
+        logger.info("stream_client_disconnected response_id=%s completed=%s", response_id, completed)
+        return
+    except (BrokenPipeError, ConnectionResetError) as exc:
+        logger.info("stream_connection_closed response_id=%s completed=%s error=%s", response_id, completed, exc)
+        return
     except HTTPError as exc:
         error = read_http_error(exc)
-        yield f"event: error\ndata: {json.dumps({'error': error}, ensure_ascii=False)}\n\n".encode("utf-8")
+        logger.warning("stream_http_error response_id=%s status=%s body=%s", response_id, exc.code, error[:1000])
+        yield sse_error(error)
     except HTTPException as exc:
-        yield f"event: error\ndata: {json.dumps({'error': exc.detail}, ensure_ascii=False)}\n\n".encode("utf-8")
+        logger.warning("stream_http_exception response_id=%s detail=%s", response_id, str(exc.detail)[:1000])
+        yield sse_error(str(exc.detail))
     except URLError as exc:
-        yield f"event: error\ndata: {json.dumps({'error': str(exc)}, ensure_ascii=False)}\n\n".encode("utf-8")
+        logger.warning("stream_url_error response_id=%s error=%s", response_id, exc)
+        yield sse_error(str(exc))
+    except OSError as exc:
+        logger.info("stream_os_error response_id=%s completed=%s error=%s", response_id, completed, exc)
+        return
+    except Exception as exc:
+        logger.exception("stream_unhandled_error response_id=%s completed=%s", response_id, completed)
+        yield sse_error(str(exc))
 
 
 def token_maintenance_worker() -> None:
@@ -690,6 +811,7 @@ async def responses(request_obj: Request):
     first_base_url = load_profile_base_url(first_profile, service_config)
     codex_body = normalize_body_for_upstream(first_base_url, codex_body)
     timeout = int((service_config.get("request_defaults") or {}).get("timeout", 300))
+    log_responses_request(codex_body)
 
     if codex_body.get("stream", True):
         return StreamingResponse(
@@ -722,6 +844,21 @@ def get_response(response_id: str):
     profile = profile_for_response(config, response_id)
     base_url = load_profile_base_url(profile, config)
     req = upstream_endpoint_request(profile, base_url, f"/{response_id}", "GET")
+    try:
+        with request.urlopen(req, timeout=60) as res:
+            return JSONResponse(json.loads(res.read().decode("utf-8", errors="replace")))
+    except HTTPError as exc:
+        raise urllib_error_to_http(exc) from exc
+    except URLError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+@app.get("/v1/responses/{response_id}/input_items")
+def get_response_input_items(response_id: str):
+    config = load_service_config()
+    profile = profile_for_response(config, response_id)
+    base_url = load_profile_base_url(profile, config)
+    req = upstream_endpoint_request(profile, base_url, f"/{response_id}/input_items", "GET")
     try:
         with request.urlopen(req, timeout=60) as res:
             return JSONResponse(json.loads(res.read().decode("utf-8", errors="replace")))
