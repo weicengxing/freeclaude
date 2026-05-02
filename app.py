@@ -34,7 +34,6 @@ from uuapi_client import (
     OPUS_47_MODEL,
     SUPPORTED_IMAGE_MEDIA_TYPES,
     iter_stream_chat,
-    mask_api_key,
     normalize_model,
     send_chat,
 )
@@ -42,33 +41,23 @@ from uuapi_client import (
 
 BASE_DIR = Path(__file__).resolve().parent
 DB_PATH = BASE_DIR / "chat_app.db"
-DEBUG_LOG_PATH = BASE_DIR / "chat_debug.log"
 APP_UPSTREAM_BASE_URL = os.getenv("UUAPI_BASE_URL", "https://uuapi.net").rstrip("/")
 DEFAULT_KEY_SOURCE_URL = "https://github.com/weicengxing/freeclaude/blob/main/key.txt"
 OPUS47_KEY_SOURCE_URL = "https://github.com/weicengxing/freeclaude/blob/main/keypromax.txt"
 logger = logging.getLogger(__name__)
 
 
-def ensure_debug_log_handler() -> None:
-    root_logger = logging.getLogger()
-    target_path = str(DEBUG_LOG_PATH)
-    for handler in root_logger.handlers:
-        if isinstance(handler, logging.FileHandler) and getattr(handler, "baseFilename", "") == target_path:
-            return
-    file_handler = logging.FileHandler(target_path, encoding="utf-8")
-    file_handler.setLevel(logging.WARNING)
-    file_handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s %(message)s"))
-    root_logger.addHandler(file_handler)
-    if root_logger.level == logging.NOTSET or root_logger.level > logging.WARNING:
-        root_logger.setLevel(logging.WARNING)
+def mask_api_key(api_key: str | None) -> str:
+    value = str(api_key or "").strip()
+    if not value:
+        return "<empty>"
+    if len(value) <= 12:
+        return value[:4] + "..."
+    return value[:12] + "..."
 
 
 def log_chat_chain(event: str, **fields: Any) -> None:
-    parts = [f"{key}={value}" for key, value in fields.items()]
-    logger.warning("CHAT %s %s", event, " ".join(parts))
-
-
-ensure_debug_log_handler()
+    return
 
 USER_SESSION_COOKIE = "user_session"
 USER_SESSION_TTL_SECONDS = 60 * 60 * 24 * 7
@@ -1532,6 +1521,29 @@ def get_api_key_record_by_id(
     return dict(row) if row is not None else None
 
 
+def list_api_key_ids_from(
+    connection: sqlite3.Connection,
+    start_id: int,
+    limit: int,
+    key_pool: str = KEY_POOL_DEFAULT,
+) -> list[int]:
+    if limit <= 0:
+        return []
+    config = get_key_pool_config(key_pool)
+    key_table = config["key_table"]
+    rows = connection.execute(
+        f"""
+        SELECT id
+        FROM {quote_identifier(key_table)}
+        WHERE id >= ?
+        ORDER BY id ASC
+        LIMIT ?
+        """,
+        (start_id, limit),
+    ).fetchall()
+    return [int(row["id"]) for row in rows]
+
+
 def get_user_key_state(
     connection: sqlite3.Connection,
     user_id: int,
@@ -1585,7 +1597,6 @@ def allocate_key_batch_locked(
     key_pool: str = KEY_POOL_DEFAULT,
 ) -> dict:
     config = get_key_pool_config(key_pool)
-    key_table = config["key_table"]
     allocator_table = config["allocator_table"]
     min_key_id, _ = get_api_key_id_bounds(connection, key_pool)
     if min_key_id is None:
@@ -1607,21 +1618,13 @@ def allocate_key_batch_locked(
         if state is not None and state["next_batch_start_id"] is not None:
             batch_start_id = max(int(state["next_batch_start_id"]), min_key_id)
 
-        allocated_batch_size = USER_KEY_BATCH_SIZE
-        batch_end_id = batch_start_id + allocated_batch_size - 1
-        available_count = connection.execute(
-            f"""
-            SELECT COUNT(*) AS count
-            FROM {quote_identifier(key_table)}
-            WHERE id BETWEEN ? AND ?
-            """,
-            (batch_start_id, batch_end_id),
-        ).fetchone()
-        if available_count is None or int(available_count["count"]) != allocated_batch_size:
-            raise HTTPException(
-                status_code=503,
-                detail=f"可分配的连续 API Key 不足 {allocated_batch_size} 个",
-            )
+        batch_key_ids = list_api_key_ids_from(connection, batch_start_id, USER_KEY_BATCH_SIZE, key_pool)
+        if not batch_key_ids:
+            raise HTTPException(status_code=503, detail="当前没有可用的 API Key")
+
+        allocated_batch_size = len(batch_key_ids)
+        batch_start_id = batch_key_ids[0]
+        last_batch_key_id = batch_key_ids[-1]
 
         now = utc_now()
         connection.execute(
@@ -1630,7 +1633,7 @@ def allocate_key_batch_locked(
             SET next_batch_start_id = ?, updated_at = ?
             WHERE singleton = 1
             """,
-            (batch_end_id + 1, now),
+            (last_batch_key_id + 1, now),
         )
         connection.execute(
             f"""
@@ -1695,9 +1698,22 @@ def advance_user_api_key(
                 return allocate_key_batch_locked(connection, user_id, key_pool)
             return key_record
 
-        batch_end_id = int(batch_start_id) + batch_size - 1
-        if int(current_key_id) < batch_end_id:
-            next_key_id = int(current_key_id) + 1
+        batch_key_ids = list_api_key_ids_from(connection, int(batch_start_id), batch_size, key_pool)
+        if not batch_key_ids:
+            connection.commit()
+            return allocate_key_batch_locked(connection, user_id, key_pool)
+
+        try:
+            current_index = batch_key_ids.index(int(current_key_id))
+        except ValueError:
+            connection.commit()
+            key_record = get_api_key_record_by_id(connection, current_key_id, key_pool)
+            if key_record is not None:
+                return key_record
+            return allocate_key_batch_locked(connection, user_id, key_pool)
+
+        if current_index < len(batch_key_ids) - 1:
+            next_key_id = batch_key_ids[current_index + 1]
             key_record = get_api_key_record_by_id(connection, next_key_id, key_pool)
             if key_record is None:
                 raise HTTPException(status_code=503, detail="下一个 API Key 不存在")
@@ -2252,7 +2268,6 @@ async def periodic_message_cleanup() -> None:
 @app.on_event("startup")
 async def startup() -> None:
     init_db()
-    logger.warning("CHAT startup upstream_base_url=%s", APP_UPSTREAM_BASE_URL)
     app.state.message_cleanup_task = asyncio.create_task(periodic_message_cleanup())
 
 
@@ -2281,6 +2296,15 @@ def index(request: Request) -> HTMLResponse:
                 {"username": "root", "password": "admin123456"},
             ],
         },
+    )
+
+
+@app.get("/claude-clone", response_class=HTMLResponse)
+def claude_clone(request: Request) -> HTMLResponse:
+    return templates.TemplateResponse(
+        request=request,
+        name="claude_clone.html",
+        context={},
     )
 
 

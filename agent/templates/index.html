@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Workspace Agent</title>
+    <link rel="stylesheet" href="/static/app.css?v=20260420b">
+</head>
+<body>
+    <div class="shell">
+        <aside class="sidebar">
+            <button id="toggle-tree-btn" class="sidebar-toggle-btn" type="button" aria-label="切换文件树">☰</button>
+
+            <div class="brand-card card">
+                <div class="eyebrow">Workspace Agent</div>
+                <h1>独立 Agent 原型</h1>
+                <p>选择本地工作目录后，agent 可以持续读取目录、读写文件，并在你授权后执行终端命令。</p>
+            </div>
+
+            <form id="workspace-form" class="card stack">
+                <div class="button-row">
+                    <button id="pick-workspace-btn" class="ghost-btn" type="button">选择本地文件夹</button>
+                    <button class="primary-btn" type="submit">启动 Agent</button>
+                </div>
+                <label class="field">
+                    <span>工作目录</span>
+                    <input id="workspace-root" type="text" placeholder="例如 D:\freeclaude">
+                </label>
+                <label class="field">
+                    <span>模型</span>
+                    <select id="model-select">
+                        {% for model in models %}
+                        <option value="{{ model }}" {% if model == default_model %}selected{% endif %}>{{ model }}</option>
+                        {% endfor %}
+                    </select>
+                </label>
+                <div id="session-meta" class="helper">还没有启动 session。</div>
+            </form>
+
+            <div class="card stack">
+                <div class="section-head">
+                    <h2>权限授权</h2>
+                    <button id="refresh-workspace-btn" class="ghost-btn small" type="button">刷新目录</button>
+                </div>
+                <label class="toggle">
+                    <input id="write-enabled" type="checkbox">
+                    <span>允许修改文件</span>
+                </label>
+                <label class="toggle">
+                    <input id="shell-enabled" type="checkbox">
+                    <span>允许执行终端</span>
+                </label>
+                <div id="permissions-meta" class="helper">读目录默认开启；写文件和终端默认关闭。</div>
+            </div>
+
+            <div class="card stack">
+                <h2>当前工具</h2>
+                <ul class="tool-list">
+                    <li>`list_dir` 列目录</li>
+                    <li>`read_file` 读文件</li>
+                    <li>`search_text` 搜索文本</li>
+                    <li>`write_file` 写文件</li>
+                    <li>`run_command` 跑终端命令</li>
+                </ul>
+            </div>
+
+            <div id="sidebar-tree-drawer" class="sidebar-tree-drawer hidden">
+                <div class="sidebar-tree-head">
+                    <div>
+                        <div class="drawer-title">文件树</div>
+                        <div id="path-badge" class="path-badge">.</div>
+                    </div>
+                    <div class="button-row compact">
+                        <button id="collapse-tree-btn" class="ghost-btn small" type="button">全部折叠</button>
+                        <button id="close-tree-btn" class="ghost-btn small" type="button">关闭</button>
+                    </div>
+                </div>
+                <div id="workspace-tree" class="workspace-tree"></div>
+            </div>
+        </aside>
+
+        <main class="main-panel">
+            <section class="chat-panel card">
+                <header class="chat-header">
+                    <div>
+                        <div class="title">持续交互</div>
+                        <div id="chat-subtitle" class="helper">先设置工作目录，再让 agent 开始工作。</div>
+                    </div>
+                    <button id="clear-session-btn" class="ghost-btn" type="button">清空 Session</button>
+                </header>
+
+                <section id="messages" class="messages">
+                    <div class="empty-state">启动 session 后，这里会显示 agent 的回答以及每次工具调用的结果。</div>
+                </section>
+
+                <form id="chat-form" class="composer">
+                    <textarea id="message-input" placeholder="例如：先看看这个目录结构，再告诉我后端入口；如果需要你可以修改文件并运行命令"></textarea>
+                    <div class="composer-row">
+                        <span id="status-text" class="helper">准备就绪</span>
+                        <button id="send-btn" class="primary-btn" type="submit">发送</button>
+                    </div>
+                </form>
+            </section>
+
+            <section class="preview-panel card">
+                <header class="section-head">
+                    <h2>文件 / 目录预览</h2>
+                    <div class="button-row compact">
+                        <button id="reload-preview-btn" class="ghost-btn small" type="button">重新加载</button>
+                        <button id="save-preview-btn" class="primary-btn small" type="button">保存修改</button>
+                        <button id="clear-preview-btn" class="ghost-btn small" type="button">清空</button>
+                    </div>
+                </header>
+                <div id="preview-meta" class="helper">默认显示当前目录摘要，点击左侧文件会切到文件内容预览。</div>
+                <textarea id="file-preview" class="file-preview" wrap="off" spellcheck="false" readonly>暂无目录信息</textarea>
+            </section>
+        </main>
+    </div>
+
+    <script src="/static/app.js?v=20260420b"></script>
+</body>
+</html>

@@ -1,0 +1,1135 @@
+<!DOCTYPE html>
+<html lang="en-US" data-theme="claude" data-mode="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+    <title>Claude Replica</title>
+    <meta name="description" content="Static Claude-style chat homepage replica.">
+    <style>
+        :root {
+            color-scheme: light;
+            --bg-000: #ffffff;
+            --bg-050: #fbfaf8;
+            --bg-100: #f7f4ee;
+            --bg-200: #efeae2;
+            --bg-250: #ebe5db;
+            --bg-300: #e2dbcf;
+            --bg-400: #d5ccbf;
+            --text-000: #14110d;
+            --text-100: #231f1a;
+            --text-200: #5f564b;
+            --text-300: #7b7267;
+            --text-400: #968d82;
+            --text-500: #aaa095;
+            --border-100: rgba(40, 28, 15, 0.07);
+            --border-200: rgba(40, 28, 15, 0.1);
+            --border-300: rgba(40, 28, 15, 0.14);
+            --border-400: rgba(40, 28, 15, 0.18);
+            --accent-brand: #d97745;
+            --accent-brand-soft: rgba(217, 119, 69, 0.12);
+            --shadow-soft: 0 10px 40px rgba(38, 27, 15, 0.06);
+            --shadow-card: 0 18px 48px rgba(38, 27, 15, 0.08);
+            --sidebar-width: 18rem;
+            --sidebar-collapsed-width: 5.5rem;
+            --radius-xl: 22px;
+            --radius-lg: 18px;
+            --radius-md: 14px;
+            --font-ui: "Aptos", "Segoe UI Variable Text", "PingFang SC", "Microsoft YaHei UI", sans-serif;
+            --font-display: "Georgia", "Times New Roman", serif;
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        html,
+        body {
+            height: 100%;
+            margin: 0;
+        }
+
+        body {
+            min-height: 100vh;
+            overflow: hidden;
+            font-family: var(--font-ui);
+            color: var(--text-100);
+            background:
+                radial-gradient(circle at top left, rgba(255, 252, 245, 0.96) 0%, rgba(255, 252, 245, 0) 24%),
+                radial-gradient(circle at top right, rgba(222, 200, 171, 0.24) 0%, rgba(222, 200, 171, 0) 26%),
+                linear-gradient(180deg, #faf7f1 0%, #f6f2eb 50%, #f7f3ed 100%);
+        }
+
+        body::before {
+            content: "";
+            position: fixed;
+            inset: 0;
+            pointer-events: none;
+            background-image:
+                linear-gradient(to right, rgba(46, 33, 18, 0.035) 1px, transparent 1px),
+                linear-gradient(to bottom, rgba(46, 33, 18, 0.035) 1px, transparent 1px);
+            background-size: 32px 32px;
+            mask-image: radial-gradient(circle at 50% 42%, rgba(0, 0, 0, 0.3) 0%, rgba(0, 0, 0, 0) 72%);
+            opacity: 0.45;
+        }
+
+        button,
+        a,
+        [contenteditable="true"] {
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        button {
+            font: inherit;
+            color: inherit;
+            background: none;
+            border: 0;
+            cursor: pointer;
+        }
+
+        a {
+            color: inherit;
+            text-decoration: none;
+        }
+
+        svg {
+            display: block;
+        }
+
+        .app-shell {
+            display: grid;
+            grid-template-columns: var(--sidebar-width) minmax(0, 1fr);
+            height: 100vh;
+            position: relative;
+        }
+
+        .sidebar-shell {
+            position: relative;
+            width: var(--sidebar-width);
+            transition: width 160ms ease, transform 180ms ease;
+            z-index: 20;
+        }
+
+        .sidebar {
+            position: fixed;
+            inset: 0 auto 0 0;
+            width: inherit;
+            display: flex;
+            flex-direction: column;
+            background: rgba(247, 244, 238, 0.92);
+            border-right: 1px solid var(--border-100);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            box-shadow: 18px 0 42px rgba(32, 22, 12, 0.03);
+        }
+
+        .sidebar-head {
+            position: relative;
+            display: flex;
+            align-items: center;
+            padding: 0.65rem 0.75rem 0 0.85rem;
+            min-height: 3.1rem;
+        }
+
+        .brand {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.55rem;
+            height: 2rem;
+            min-width: 0;
+            overflow: hidden;
+            color: var(--text-100);
+        }
+
+        .brand-spark {
+            flex: 0 0 auto;
+            width: 1rem;
+            height: 1rem;
+            color: var(--accent-brand);
+        }
+
+        .brand-wordmark {
+            width: 4.25rem;
+            height: 1rem;
+            flex: 0 0 auto;
+        }
+
+        .icon-button,
+        .ghost-nav,
+        .nav-link,
+        .panel-pill,
+        .category-button,
+        .user-card,
+        .mobile-menu-button,
+        .model-button {
+            border-radius: 0.9rem;
+            transition:
+                background-color 90ms ease,
+                color 90ms ease,
+                border-color 90ms ease,
+                transform 90ms ease,
+                opacity 120ms ease;
+        }
+
+        .icon-button {
+            width: 2rem;
+            height: 2rem;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            color: var(--text-400);
+        }
+
+        .icon-button:hover,
+        .ghost-nav:hover,
+        .nav-link:hover,
+        .model-button:hover,
+        .voice-button:hover {
+            background: var(--bg-200);
+            color: var(--text-100);
+        }
+
+        .sidebar-toggle {
+            position: absolute;
+            right: 0.5rem;
+            top: 0.45rem;
+        }
+
+        .sidebar-body {
+            flex: 1;
+            min-height: 0;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        .sidebar-group {
+            padding: 0.3rem 0.5rem 0;
+        }
+
+        .nav-link {
+            width: 100%;
+            min-height: 2.75rem;
+            display: flex;
+            align-items: center;
+            gap: 0.8rem;
+            padding: 0.6rem 0.9rem;
+            color: var(--text-100);
+        }
+
+        .nav-link .nav-icon-wrap {
+            width: 1.45rem;
+            height: 1.45rem;
+            border-radius: 999px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            flex: 0 0 auto;
+            color: inherit;
+        }
+
+        .nav-link.primary-link .nav-icon-wrap {
+            background: rgba(35, 31, 26, 0.1);
+        }
+
+        .nav-link:hover .nav-icon-wrap {
+            transform: scale(1.04) rotate(-2deg);
+        }
+
+        .nav-copy {
+            min-width: 0;
+            flex: 1;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .nav-label,
+        .brand-wordmark,
+        .shortcut,
+        .user-copy,
+        .download-apps,
+        .user-chevron,
+        .empty-state,
+        .nav-divider {
+            transition: opacity 110ms ease, transform 110ms ease, width 110ms ease;
+        }
+
+        .nav-label {
+            min-width: 0;
+            font-size: 0.95rem;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .shortcut {
+            font-size: 0.74rem;
+            color: var(--text-500);
+            opacity: 0;
+            flex: 0 0 auto;
+            white-space: nowrap;
+        }
+
+        .nav-link:hover .shortcut {
+            opacity: 1;
+        }
+
+        .sidebar-group.scroller {
+            flex: 1;
+            min-height: 0;
+            overflow: auto;
+            padding-top: 1rem;
+        }
+
+        .sidebar-group.scroller::-webkit-scrollbar {
+            width: 8px;
+        }
+
+        .sidebar-group.scroller::-webkit-scrollbar-thumb {
+            background: rgba(70, 56, 42, 0.15);
+            border-radius: 999px;
+        }
+
+        .empty-state {
+            margin: 1.2rem 0.55rem 0;
+            padding: 2rem 1rem;
+            text-align: center;
+            color: var(--text-500);
+            font-size: 0.9rem;
+        }
+
+        .sidebar-footer {
+            border-top: 1px solid var(--border-100);
+            padding: 0;
+        }
+
+        .user-card {
+            width: 100%;
+            min-height: 5rem;
+            display: flex;
+            align-items: center;
+            gap: 0.8rem;
+            padding: 0.65rem 0.75rem;
+            border-radius: 0;
+        }
+
+        .user-card:hover {
+            background: rgba(233, 226, 215, 0.55);
+        }
+
+        .avatar {
+            width: 2.25rem;
+            height: 2.25rem;
+            border-radius: 999px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            background: #b7ab9a;
+            color: #fff;
+            font-weight: 700;
+            letter-spacing: 0.02em;
+            flex: 0 0 auto;
+        }
+
+        .user-copy {
+            min-width: 0;
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            gap: 0.1rem;
+            text-align: left;
+        }
+
+        .user-name {
+            font-size: 0.94rem;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .user-plan {
+            font-size: 0.75rem;
+            color: var(--text-500);
+        }
+
+        .download-apps {
+            width: 2rem;
+            height: 2rem;
+            border-radius: 0.65rem;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            border: 1px solid rgba(55, 40, 25, 0.12);
+            color: var(--text-300);
+            flex: 0 0 auto;
+        }
+
+        .download-apps:hover {
+            background: var(--bg-200);
+            border-color: transparent;
+        }
+
+        .user-chevron {
+            color: var(--text-300);
+            flex: 0 0 auto;
+        }
+
+        .workspace {
+            position: relative;
+            min-width: 0;
+            min-height: 100vh;
+            overflow: hidden auto;
+        }
+
+        .workspace-inner {
+            min-height: 100%;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: clamp(1rem, 2vw, 1.4rem) clamp(1rem, 2.6vw, 2rem) 3rem;
+        }
+
+        .mobile-menu-button {
+            display: none;
+            position: fixed;
+            left: 1rem;
+            top: 0.95rem;
+            z-index: 24;
+            width: 2.4rem;
+            height: 2.4rem;
+            align-items: center;
+            justify-content: center;
+            background: rgba(255, 255, 255, 0.92);
+            border: 1px solid var(--border-200);
+            box-shadow: var(--shadow-soft);
+        }
+
+        .utility-corner {
+            position: fixed;
+            right: 0.9rem;
+            top: 0.7rem;
+            z-index: 14;
+        }
+
+        .utility-corner .icon-button {
+            width: 2.15rem;
+            height: 2.15rem;
+            background: transparent;
+        }
+
+        .main-center {
+            width: 100%;
+            max-width: 44rem;
+            margin-top: clamp(3.5rem, 11vh, 7rem);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 1.55rem;
+        }
+
+        .panel-pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.4rem;
+            min-height: 2rem;
+            padding: 0 0.8rem;
+            border-radius: 0.75rem;
+            background: var(--bg-200);
+            color: var(--text-300);
+            font-size: 0.94rem;
+            user-select: none;
+        }
+
+        .panel-pill a {
+            text-decoration: underline;
+            text-underline-offset: 0.2rem;
+            text-decoration-color: rgba(123, 114, 103, 0.4);
+        }
+
+        .hero {
+            display: flex;
+            align-items: center;
+            gap: 0.85rem;
+            color: var(--text-200);
+            font-family: var(--font-display);
+            font-size: clamp(1.9rem, 1.2rem + 2vw, 2.55rem);
+            line-height: 1.4;
+            text-align: center;
+        }
+
+        .hero-icon {
+            width: 2rem;
+            height: 2rem;
+            color: var(--accent-brand);
+            flex: 0 0 auto;
+        }
+
+        .hero-title {
+            white-space: nowrap;
+            user-select: none;
+        }
+
+        .composer-stack {
+            width: 100%;
+        }
+
+        .counter-wrap {
+            padding-inline: 0.15rem;
+        }
+
+        .counter-card {
+            border: 1px solid var(--border-300);
+            border-bottom: 0;
+            border-radius: 1rem 1rem 0 0;
+            background: var(--bg-200);
+            padding: 0.55rem 0.95rem 0.5rem;
+            font-size: 0.92rem;
+            color: var(--text-200);
+            text-align: center;
+        }
+
+        .counter-meta {
+            display: flex;
+            flex-direction: column;
+            gap: 0.1rem;
+        }
+
+        .composer-card {
+            position: relative;
+            border-radius: 1.35rem;
+            background: var(--bg-000);
+            padding: 0.95rem;
+            box-shadow:
+                0 0.25rem 1.25rem rgba(20, 17, 13, 0.035),
+                0 0 0 0.5px rgba(80, 60, 30, 0.15);
+        }
+
+        .composer-card:hover,
+        .composer-card:focus-within {
+            box-shadow:
+                0 0.25rem 1.35rem rgba(20, 17, 13, 0.075),
+                0 0 0 0.5px rgba(80, 60, 30, 0.22);
+        }
+
+        .editor-shell {
+            position: relative;
+            min-height: 5.35rem;
+            display: flex;
+            align-items: stretch;
+        }
+
+        .editor {
+            width: 100%;
+            min-height: 5.35rem;
+            max-height: 24rem;
+            overflow: auto;
+            padding: 0.7rem 0.72rem 0.8rem;
+            outline: none;
+            font-size: 1rem;
+            line-height: 1.55;
+            color: var(--text-100);
+            white-space: pre-wrap;
+            word-break: break-word;
+        }
+
+        .editor::-webkit-scrollbar {
+            width: 8px;
+        }
+
+        .editor::-webkit-scrollbar-thumb {
+            background: rgba(60, 45, 28, 0.12);
+            border-radius: 999px;
+        }
+
+        .editor-placeholder {
+            position: absolute;
+            left: 0.82rem;
+            top: 0.75rem;
+            color: var(--text-500);
+            pointer-events: none;
+        }
+
+        .composer-footer {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 0.8rem;
+        }
+
+        .composer-left,
+        .composer-right {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            min-width: 0;
+        }
+
+        .model-button {
+            min-height: 2rem;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.3rem;
+            padding: 0 0.75rem;
+            color: var(--text-100);
+            font-size: 0.93rem;
+            white-space: nowrap;
+        }
+
+        .voice-button {
+            width: 2rem;
+            height: 2rem;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 0.7rem;
+            color: var(--text-100);
+            transition: background-color 100ms ease;
+        }
+
+        .category-list {
+            width: 100%;
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            justify-content: center;
+            gap: 0.55rem;
+            margin: 0;
+            padding: 0.2rem 0 0;
+            list-style: none;
+        }
+
+        .category-button {
+            height: 2rem;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.42rem;
+            padding: 0 0.8rem;
+            border: 1px solid var(--border-300);
+            background: rgba(247, 244, 238, 0.86);
+            color: var(--text-200);
+            font-size: 0.92rem;
+            white-space: nowrap;
+        }
+
+        .category-button:hover,
+        .category-button[aria-selected="true"] {
+            background: var(--bg-300);
+            border-color: transparent;
+            color: var(--text-100);
+        }
+
+        .category-button svg {
+            color: var(--text-400);
+        }
+
+        .category-button:hover svg,
+        .category-button[aria-selected="true"] svg {
+            color: var(--text-200);
+        }
+
+        .backdrop {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(23, 18, 13, 0.28);
+            z-index: 18;
+        }
+
+        .desktop-collapsed .app-shell {
+            grid-template-columns: var(--sidebar-collapsed-width) minmax(0, 1fr);
+        }
+
+        .desktop-collapsed .sidebar-shell {
+            width: var(--sidebar-collapsed-width);
+        }
+
+        .desktop-collapsed .brand-wordmark,
+        .desktop-collapsed .nav-label,
+        .desktop-collapsed .shortcut,
+        .desktop-collapsed .empty-state,
+        .desktop-collapsed .user-copy,
+        .desktop-collapsed .download-apps,
+        .desktop-collapsed .user-chevron {
+            opacity: 0;
+            width: 0;
+            transform: translateX(-6px);
+            overflow: hidden;
+            pointer-events: none;
+        }
+
+        .desktop-collapsed .brand {
+            justify-content: center;
+            width: 100%;
+        }
+
+        .desktop-collapsed .sidebar-head {
+            padding-inline: 0.4rem;
+            justify-content: center;
+        }
+
+        .desktop-collapsed .sidebar-toggle {
+            right: 0.15rem;
+        }
+
+        .desktop-collapsed .nav-link {
+            justify-content: center;
+            padding-inline: 0.45rem;
+        }
+
+        .desktop-collapsed .nav-copy {
+            flex: 0 0 auto;
+        }
+
+        .desktop-collapsed .user-card {
+            justify-content: center;
+            padding-inline: 0.4rem;
+        }
+
+        .desktop-collapsed .user-card .avatar {
+            margin: 0;
+        }
+
+        @media (max-width: 980px) {
+            body {
+                overflow: auto;
+            }
+
+            .app-shell {
+                grid-template-columns: 1fr;
+                min-height: 100vh;
+                height: auto;
+            }
+
+            .mobile-menu-button {
+                display: inline-flex;
+            }
+
+            .sidebar-shell {
+                position: fixed;
+                inset: 0 auto 0 0;
+                width: min(18rem, calc(100vw - 2.8rem));
+                transform: translateX(-102%);
+                box-shadow: none;
+            }
+
+            .sidebar-shell.mobile-open {
+                transform: translateX(0);
+            }
+
+            .sidebar {
+                width: min(18rem, calc(100vw - 2.8rem));
+                box-shadow: var(--shadow-card);
+            }
+
+            .workspace {
+                min-height: 100vh;
+                padding-bottom: 2rem;
+            }
+
+            .workspace-inner {
+                padding-inline: 0.75rem;
+            }
+
+            .main-center {
+                margin-top: 4.8rem;
+                max-width: 100%;
+                gap: 1.25rem;
+            }
+
+            .hero {
+                font-size: clamp(1.5rem, 5vw, 2rem);
+                gap: 0.6rem;
+            }
+
+            .hero-title {
+                white-space: normal;
+            }
+
+            .composer-card {
+                padding: 0.8rem;
+            }
+
+            .category-list {
+                justify-content: flex-start;
+            }
+
+            .backdrop.mobile-visible {
+                display: block;
+            }
+        }
+
+        @media (max-width: 640px) {
+            .counter-card {
+                font-size: 0.84rem;
+            }
+
+            .composer-footer {
+                flex-wrap: wrap;
+            }
+
+            .composer-right {
+                width: 100%;
+                justify-content: space-between;
+            }
+
+            .model-button {
+                padding-left: 0.55rem;
+                padding-right: 0.55rem;
+            }
+        }
+    </style>
+</head>
+<body>
+    <button class="mobile-menu-button" id="mobileMenuButton" type="button" aria-label="Open sidebar">
+        <svg width="20" height="20" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+            <path d="M3 5.5A.5.5 0 0 1 3.5 5h13a.5.5 0 0 1 0 1h-13A.5.5 0 0 1 3 5.5Zm0 4.5a.5.5 0 0 1 .5-.5h13a.5.5 0 0 1 0 1h-13A.5.5 0 0 1 3 10Zm.5 4a.5.5 0 0 0 0 1h13a.5.5 0 0 0 0-1h-13Z"></path>
+        </svg>
+    </button>
+
+    <div class="utility-corner">
+        <button class="icon-button" type="button" aria-label="Use incognito">
+            <svg width="20" height="20" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+                <g>
+                    <path d="M6.99951 8.66672C7.5518 8.66672 7.99951 9.11443 7.99951 9.66672C7.9993 10.2188 7.55166 10.6667 6.99951 10.6667C6.44736 10.6667 5.99973 10.2188 5.99951 9.66672C5.99951 9.11443 6.44723 8.66672 6.99951 8.66672Z"></path>
+                    <path d="M12.9995 8.66672C13.5518 8.66672 13.9995 9.11443 13.9995 9.66672C13.9993 10.2188 13.5517 10.6667 12.9995 10.6667C12.4474 10.6667 11.9997 10.2188 11.9995 9.66672C11.9995 9.11443 12.4472 8.66672 12.9995 8.66672Z"></path>
+                </g>
+                <path fill-rule="evenodd" clip-rule="evenodd" d="M10 2C14.326 2.00018 17.9998 5.67403 18 10V17.3123C17.9997 17.5427 17.8411 17.8079 17.6172 17.8623C17.3932 17.9165 17.1614 17.7456 17.0557 17.5408C16.7805 17.007 16.3658 16.5937 16.062 16.2878C15.7793 16.0034 15.4503 15.8338 14.9771 15.8337C14.2092 15.8339 13.4371 16.3862 12.9487 17.53C12.8701 17.7138 12.6887 17.8621 12.4888 17.8623C12.2888 17.8623 12.1076 17.7138 12.0288 17.53C11.5404 16.386 10.7674 15.8339 9.99951 15.8337C9.23161 15.8339 8.45959 16.386 7.97119 17.53C7.89253 17.7138 7.71118 17.8621 7.51123 17.8623C7.31122 17.8623 7.13006 17.7138 7.05127 17.53C6.56296 16.3862 5.78982 15.834 5.02197 15.8337C4.54861 15.8338 4.21974 16.0032 3.93701 16.2878C3.63309 16.5937 3.21952 17.0715 2.94434 17.6055C2.83865 17.8103 2.60589 17.9165 2.38184 17.8623C2.15801 17.8079 2.00033 17.6073 2 17.377V10C2.00018 5.67403 5.67403 2.00018 10 2ZM10 3C6.22631 3.00018 3.00018 6.22631 3 10V15.8633C3.0205 15.8414 3.20696 15.6049 3.22803 15.5837C3.67524 15.1336 4.251 14.8338 5.02197 14.8337C6.03838 14.8341 6.90232 15.4025 7.51025 16.2937C8.11828 15.4018 8.9824 14.8338 9.99951 14.8337C11.0163 14.8338 11.8798 15.4022 12.4878 16.2937C13.0959 15.4018 13.9601 14.8339 14.9771 14.8337C15.7481 14.8338 16.3247 15.1336 16.772 15.5837C16.772 15.5837 16.9796 15.812 17 15.8337V10C16.9998 6.22631 13.7737 3.00018 10 3Z"></path>
+            </svg>
+        </button>
+    </div>
+
+    <div class="app-shell">
+        <aside class="sidebar-shell" id="sidebarShell" aria-label="Sidebar">
+            <nav class="sidebar">
+                <div class="sidebar-head">
+                    <a class="brand" href="#" aria-label="Claude home">
+                        <span class="brand-spark" aria-hidden="true">
+                            <svg viewBox="0 0 100 100" fill="currentColor">
+                                <path d="m19.6 66.5 19.7-11 .3-1-.3-.5h-1l-3.3-.2-11.2-.3L14 53l-9.5-.5-2.4-.5L0 49l.2-1.5 2-1.3 2.9.2 6.3.5 9.5.6 6.9.4L38 49.1h1.6l.2-.7-.5-.4-.4-.4L29 41l-10.6-7-5.6-4.1-3-2-1.5-2-.6-4.2 2.7-3 3.7.3.9.2 3.7 2.9 8 6.1L37 36l1.5 1.2.6-.4.1-.3-.7-1.1L33 25l-6-10.4-2.7-4.3-.7-2.6c-.3-1-.4-2-.4-3l3-4.2L28 0l4.2.6L33.8 2l2.6 6 4.1 9.3L47 29.9l2 3.8 1 3.4.3 1h.7v-.5l.5-7.2 1-8.7 1-11.2.3-3.2 1.6-3.8 3-2L61 2.6l2 2.9-.3 1.8-1.1 7.7L59 27.1l-1.5 8.2h.9l1-1.1 4.1-5.4 6.9-8.6 3-3.5L77 13l2.3-1.8h4.3l3.1 4.7-1.4 4.9-4.4 5.6-3.7 4.7-5.3 7.1-3.2 5.7.3.4h.7l12-2.6 6.4-1.1 7.6-1.3 3.5 1.6.4 1.6-1.4 3.4-8.2 2-9.6 2-14.3 3.3-.2.1.2.3 6.4.6 2.8.2h6.8l12.6 1 3.3 2 1.9 2.7-.3 2-5.1 2.6-6.8-1.6-16-3.8-5.4-1.3h-.8v.4l4.6 4.5 8.3 7.5L89 80.1l.5 2.4-1.3 2-1.4-.2-9.2-7-3.6-3-8-6.8h-.5v.7l1.8 2.7 9.8 14.7.5 4.5-.7 1.4-2.6 1-2.7-.6-5.8-8-6-9-4.7-8.2-.5.4-2.9 30.2-1.3 1.5-3 1.2-2.5-2-1.4-3 1.4-6.2 1.6-8 1.3-6.4 1.2-7.9.7-2.6v-.2H49L43 72l-9 12.3-7.2 7.6-1.7.7-3-1.5.3-2.8L24 86l10-12.8 6-7.9 4-4.6-.1-.5h-.3L17.2 77.4l-4.7.6-2-2 .2-3 1-1 8-5.5Z"></path>
+                            </svg>
+                        </span>
+                        <svg class="brand-wordmark" viewBox="0 0 68 16" fill="currentColor" aria-label="Claude">
+                            <path d="M7.98 15.73C6.50667 15.73 5.17667 15.4367 3.99 14.85C2.81 14.2567 1.88 13.4167 1.2 12.33C0.526669 11.2367 0.190002 9.96334 0.190002 8.51001C0.190002 7.01001 0.526669 5.67334 1.2 4.50001C1.87334 3.32668 2.8 2.41668 3.98 1.77001C5.16667 1.11668 6.49334 0.790009 7.96 0.790009C8.88667 0.790009 9.81667 0.896676 10.75 1.11001C11.69 1.32334 12.5033 1.64001 13.19 2.06001V5.36001H12.29C12.05 4.22668 11.5867 3.36334 10.9 2.77001C10.2133 2.17668 9.24 1.88001 7.98 1.88001C6.85334 1.88001 5.91334 2.15334 5.16 2.70001C4.40667 3.24001 3.84667 3.98334 3.48 4.93001C3.12 5.87001 2.94 6.94668 2.94 8.16001C2.94 9.37334 3.14667 10.4733 3.56 11.46C3.97334 12.44 4.57667 13.2167 5.37 13.79C6.16334 14.3567 7.11 14.64 8.21 14.64C8.97667 14.64 9.63667 14.4733 10.19 14.14C10.75 13.8 11.2167 13.3533 11.59 12.8C11.97 12.2467 12.3367 11.5667 12.69 10.76H13.63L12.99 14.43C12.35 14.8567 11.5733 15.18 10.66 15.4C9.75334 15.62 8.86 15.73 7.98 15.73ZM15.15 14.63C15.4833 14.5833 15.7433 14.53 15.93 14.47C16.1167 14.41 16.2633 14.3167 16.37 14.19C16.4767 14.0567 16.53 13.8733 16.53 13.64V2.96001L15.15 2.31001V1.65001L18.12 0.26001H18.91V13.64C18.91 13.8733 18.9633 14.0567 19.07 14.19C19.1767 14.3167 19.3233 14.41 19.51 14.47C19.6967 14.53 19.96 14.5833 20.3 14.63V15.5H15.15V14.63ZM24.44 15.73C23.8867 15.73 23.39 15.6167 22.95 15.39C22.51 15.1567 22.1667 14.8367 21.92 14.43C21.68 14.0233 21.56 13.5567 21.56 13.03C21.56 12.2633 21.7967 11.6233 22.27 11.11C22.75 10.5967 23.47 10.2033 24.43 9.93001L27.87 8.96001V7.56001C27.87 6.85334 27.7033 6.31668 27.37 5.95001C27.0433 5.58334 26.5633 5.40001 25.93 5.40001C25.37 5.40001 24.93 5.57668 24.61 5.93001C24.2967 6.27668 24.14 6.75668 24.14 7.37001V8.35001H22.47C22.2833 8.23001 22.1367 8.06334 22.03 7.85001C21.93 7.63668 21.88 7.40334 21.88 7.15001C21.88 6.67668 22.06 6.24001 22.42 5.84001C22.78 5.43334 23.2633 5.11334 23.87 4.88001C24.4833 4.64668 25.16 4.53001 25.9 4.53001C26.8133 4.53001 27.5933 4.67334 28.24 4.96001C28.8933 5.24668 29.39 5.66668 29.73 6.22001C30.0767 6.77334 30.25 7.43668 30.25 8.21001V13.5C30.25 13.7333 30.29 13.9133 30.37 14.04C30.45 14.1667 30.5867 14.2667 30.78 14.34C30.98 14.4133 31.2633 14.4767 31.63 14.53V15.39C31.0967 15.5967 30.5633 15.7 30.03 15.7C29.4367 15.7 28.9567 15.56 28.59 15.28C28.23 15 28.0067 14.6 27.92 14.08C27.44 14.62 26.9067 15.03 26.32 15.31C25.7333 15.59 25.1067 15.73 24.44 15.73ZM25.62 14.13C26.0067 14.13 26.3967 14.0433 26.79 13.87C27.1833 13.69 27.5433 13.4433 27.87 13.13V9.87001L25.43 10.61C24.9233 10.7567 24.5433 10.99 24.29 11.31C24.0433 11.6233 23.92 12.0267 23.92 12.52C23.92 12.8267 23.9933 13.1033 24.14 13.35C24.2867 13.59 24.49 13.78 24.75 13.92C25.01 14.06 25.3 14.13 25.62 14.13ZM36.56 15.73C35.48 15.73 34.68 15.4467 34.16 14.88C33.6467 14.3133 33.39 13.53 33.39 12.53V6.91001L32.01 6.37001V5.70001L34.98 4.53001H35.77V12.12C35.77 12.7533 35.9233 13.2233 36.23 13.53C36.5433 13.8367 37.0133 13.99 37.64 13.99C38.0533 13.99 38.4833 13.8967 38.93 13.71C39.3833 13.5167 39.8 13.27 40.18 12.97V6.91001L38.8 6.37001V5.70001L41.77 4.53001H42.56V12.91C42.56 13.17 42.6133 13.37 42.72 13.51C42.8333 13.65 42.9833 13.7533 43.17 13.82C43.3567 13.88 43.6167 13.9333 43.95 13.98V14.84L40.97 15.69H40.18V13.96C39.6667 14.4933 39.0867 14.9233 38.44 15.25C37.8 15.57 37.1733 15.73 36.56 15.73ZM49.61 15.73C48.7367 15.73 47.9567 15.51 47.27 15.07C46.5833 14.6233 46.0467 14.02 45.66 13.26C45.28 12.5 45.09 11.66 45.09 10.74C45.09 9.56668 45.3167 8.51001 45.77 7.57001C46.2233 6.63001 46.8733 5.89001 47.72 5.35001C48.5733 4.80334 49.5767 4.53001 50.73 4.53001C51.0767 4.53001 51.43 4.56668 51.79 4.64001C52.15 4.70668 52.4967 4.81001 52.83 4.95001V2.96001L51.45 2.31001V1.65001L54.42 0.26001H55.21V12.91C55.21 13.17 55.2633 13.37 55.37 13.51C55.4833 13.65 55.6333 13.7533 55.82 13.82C56.0067 13.88 56.2667 13.9333 56.6 13.98V14.84L53.62 15.69H52.83V14.39C52.3833 14.8167 51.8867 15.1467 51.34 15.38C50.7933 15.6133 50.2167 15.73 49.61 15.73ZM50.6 14.12C50.9867 14.12 51.3733 14.0467 51.76 13.9C52.1467 13.7467 52.5033 13.5367 52.83 13.27V6.38001C52.2567 5.92001 51.6167 5.69001 50.91 5.69001C50.1767 5.69001 49.5567 5.89001 49.05 6.29001C48.55 6.68334 48.1767 7.21334 47.93 7.88001C47.69 8.54668 47.57 9.28334 47.57 10.09C47.57 10.8567 47.6767 11.5433 47.89 12.15C48.11 12.7567 48.4467 13.2367 48.9 13.59C49.3533 13.9433 49.92 14.12 50.6 14.12ZM62.93 15.73C61.9433 15.73 61.0533 15.4967 60.26 15.03C59.4733 14.5567 58.8567 13.9033 58.41 13.07C57.9633 12.2367 57.74 11.3 57.74 10.26C57.74 9.18001 57.9667 8.20334 58.42 7.33001C58.88 6.45668 59.51 5.77334 60.31 5.28001C61.1167 4.78001 62.0167 4.53001 63.01 4.53001C63.77 4.53001 64.4667 4.68668 65.1 5.00001C65.7333 5.31334 66.2567 5.76001 66.67 6.34001C67.09 6.92001 67.37 7.59001 67.51 8.35001L60.14 10.66C60.3333 11.62 60.7267 12.38 61.32 12.94C61.92 13.4933 62.67 13.77 63.57 13.77C64.31 13.77 64.9767 13.5733 65.57 13.18C66.17 12.78 66.7 12.18 67.16 11.38L67.93 11.63C67.7633 12.4433 67.44 13.16 66.96 13.78C66.4867 14.4 65.9 14.88 65.2 15.22C64.5067 15.56 63.75 15.73 62.93 15.73ZM64.95 8.03001C64.8567 7.55668 64.6933 7.14001 64.46 6.78001C64.2267 6.42001 63.94 6.14001 63.6 5.94001C63.2667 5.74001 62.9033 5.64001 62.51 5.64001C62.01 5.64001 61.57 5.79334 61.19 6.10001C60.8167 6.40001 60.5267 6.83001 60.32 7.39001C60.1133 7.95001 60.01 8.60001 60.01 9.34001C60.01 9.46668 60.0133 9.56334 60.02 9.63001L64.95 8.03001Z"></path>
+                        </svg>
+                    </a>
+
+                    <button class="icon-button sidebar-toggle" id="sidebarToggle" type="button" aria-label="Close sidebar" aria-pressed="true">
+                        <svg width="20" height="20" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+                            <path d="M16.5 4A1.5 1.5 0 0 1 18 5.5v9a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 2 14.5v-9A1.5 1.5 0 0 1 3.5 4zM7 15h9.5a.5.5 0 0 0 .5-.5v-9a.5.5 0 0 0-.5-.5H7zM3.5 5a.5.5 0 0 0-.5.5v9a.5.5 0 0 0 .5.5H6V5z"></path>
+                        </svg>
+                    </button>
+                </div>
+
+                <div class="sidebar-body">
+                    <div class="sidebar-group">
+                        <button class="nav-link primary-link" id="newChatButton" type="button" aria-label="New chat">
+                            <span class="nav-icon-wrap">
+                                <svg width="16" height="16" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+                                    <path d="M10 3a.75.75 0 0 1 .75.75v5.5h5.5a.75.75 0 0 1 .077 1.496l-.077.004h-5.5v5.5a.75.75 0 0 1-1.5 0v-5.5h-5.5a.75.75 0 0 1 0-1.5h5.5v-5.5A.75.75 0 0 1 10 3"></path>
+                                </svg>
+                            </span>
+                            <span class="nav-copy">
+                                <span class="nav-label">New chat</span>
+                            </span>
+                            <span class="shortcut">Ctrl+⇧+O</span>
+                        </button>
+                    </div>
+
+                    <div class="sidebar-group">
+                        <a class="nav-link" href="#" aria-label="Search">
+                            <span class="nav-icon-wrap">
+                                <svg width="16" height="16" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+                                    <path d="M8.5 2a6.5 6.5 0 0 1 4.935 10.728l4.419 4.419.064.078a.5.5 0 0 1-.693.693l-.079-.064-4.419-4.42A6.5 6.5 0 1 1 8.5 2m0 1a5.5 5.5 0 1 0 0 11 5.5 5.5 0 0 0 0-11"></path>
+                                </svg>
+                            </span>
+                            <span class="nav-copy">
+                                <span class="nav-label">Search</span>
+                            </span>
+                            <span class="shortcut">Ctrl+K</span>
+                        </a>
+                        <a class="nav-link" href="#" aria-label="Customize">
+                            <span class="nav-icon-wrap">
+                                <svg width="16" height="16" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+                                    <path d="M12.5 3A1.5 1.5 0 0 1 14 4.5V6h.5A3.5 3.5 0 0 1 18 9.5v6a1.5 1.5 0 0 1-1.5 1.5h-13a1.5 1.5 0 0 1-1.492-1.347L2 15.5v-6A3.5 3.5 0 0 1 5.5 6H6V4.5A1.5 1.5 0 0 1 7.5 3zM3 15.5l.01.1a.5.5 0 0 0 .49.4h13a.5.5 0 0 0 .5-.5V12h-4v.5a.5.5 0 0 1-1 0V12H8v.5a.5.5 0 0 1-1 0V12H3zM5.5 7A2.5 2.5 0 0 0 3 9.5V11h4v-.5a.5.5 0 0 1 1 0v.5h4v-.5a.5.5 0 0 1 1 0v.5h4V9.5A2.5 2.5 0 0 0 14.5 7zm2-3a.5.5 0 0 0-.5.5V6h6V4.5a.5.5 0 0 0-.5-.5z"></path>
+                                </svg>
+                            </span>
+                            <span class="nav-copy">
+                                <span class="nav-label">Customize</span>
+                            </span>
+                        </a>
+                    </div>
+
+                    <div class="sidebar-group scroller">
+                        <a class="nav-link" href="#" aria-label="Chats">
+                            <span class="nav-icon-wrap">
+                                <svg width="16" height="16" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+                                    <path d="M8.99962 2C12.3133 2 14.9996 4.68629 14.9996 8C14.9996 11.3137 12.3133 14 8.99962 14H2.49962C2.30105 13.9998 2.12113 13.8821 2.04161 13.7002C1.96224 13.5181 1.99835 13.3058 2.1334 13.1602L3.93516 11.2178C3.34317 10.2878 2.99962 9.18343 2.99962 8C2.99962 4.68643 5.68609 2.00022 8.99962 2ZM8.99962 3C6.23838 3.00022 3.99961 5.23871 3.99961 8C3.99961 9.11212 4.36265 10.1386 4.97618 10.9688C5.11884 11.1621 5.1035 11.4293 4.94004 11.6055L3.64512 13H8.99962C11.761 13 13.9996 10.7614 13.9996 8C13.9996 5.23858 11.761 3 8.99962 3Z"></path>
+                                    <path d="M16.5445 9.72754C16.4182 9.53266 16.1678 9.44648 15.943 9.53418C15.7183 9.62215 15.5932 9.85502 15.6324 10.084L15.7369 10.3955C15.9073 10.8986 16.0006 11.438 16.0006 12C16.0006 13.1123 15.6376 14.1386 15.024 14.9687C14.8811 15.1621 14.8956 15.4302 15.0592 15.6064L16.3531 17H11.0006C9.54519 17 8.23527 16.3782 7.32091 15.3848L7.07091 15.1103C6.88996 14.9645 6.62535 14.9606 6.43907 15.1143C6.25267 15.2682 6.20668 15.529 6.31603 15.7344L6.58458 16.0625C7.68048 17.253 9.25377 18 11.0006 18H17.5006C17.6991 17.9998 17.8791 17.8822 17.9586 17.7002C18.038 17.5181 18.0018 17.3058 17.8668 17.1602L16.0631 15.2178C16.6554 14.2876 17.0006 13.1837 17.0006 12C17.0006 11.3271 16.8891 10.6792 16.6842 10.0742L16.5445 9.72754Z"></path>
+                                </svg>
+                            </span>
+                            <span class="nav-copy">
+                                <span class="nav-label">Chats</span>
+                            </span>
+                        </a>
+
+                        <a class="nav-link" href="#" aria-label="Projects">
+                            <span class="nav-icon-wrap">
+                                <svg width="16" height="16" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+                                    <path d="M15.8198 7C16.6885 7.00025 17.3624 7.73158 17.3178 8.57617L17.2993 8.74707L16.1332 15.7471C16.0126 16.4699 15.3865 16.9996 14.6538 17H5.34711C4.6142 16.9998 3.98833 16.47 3.86762 15.7471L2.7016 8.74707C2.54922 7.83277 3.25418 7 4.18109 7H15.8198ZM4.18109 8C3.87216 8 3.63722 8.27731 3.68793 8.58203L4.85394 15.582C4.89413 15.8229 5.10291 15.9998 5.34711 16H14.6538C14.8978 15.9996 15.1068 15.8228 15.1469 15.582L16.3129 8.58203L16.3188 8.46973C16.3036 8.21259 16.0899 8.00023 15.8198 8H4.18109Z"></path>
+                                    <path d="M16.0004 5.5C16.0004 5.224 15.7764 5.00024 15.5004 5H4.50043C4.22428 5 4.00043 5.22386 4.00043 5.5C4.00043 5.77614 4.22428 6 4.50043 6H15.5004C15.7764 5.99976 16.0004 5.776 16.0004 5.5Z"></path>
+                                    <path d="M14.5004 3.5C14.5004 3.224 14.2764 3.00024 14.0004 3H6.00043C5.72428 3 5.50043 3.22386 5.50043 3.5C5.50043 3.77614 5.72428 4 6.00043 4H14.0004C14.2764 3.99976 14.5004 3.776 14.5004 3.5Z"></path>
+                                </svg>
+                            </span>
+                            <span class="nav-copy">
+                                <span class="nav-label">Projects</span>
+                            </span>
+                        </a>
+
+                        <a class="nav-link" href="#" aria-label="Artifacts">
+                            <span class="nav-icon-wrap">
+                                <svg width="16" height="16" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+                                    <path d="M6.35352 3.1464L9.35352 6.14642C9.43935 6.25103 9.5 6.36003 9.5 6.50091C9.4998 6.6332 9.44704 6.75988 9.35352 6.85346L6.35352 9.85347C6.14584 10.0609 5.85611 10.0243 5.64648 9.85347L2.64648 6.85346C2.55296 6.75988 2.5002 6.6332 2.5 6.50091C2.5 6.36841 2.55285 6.24017 2.64648 6.14642L5.64648 3.1464C5.8552 2.97421 6.14635 2.93936 6.35352 3.1464ZM6 8.79194L3.70703 6.49994L6 4.20696L8.29297 6.49994L6 8.79194Z"></path>
+                                    <path d="M16.8984 3.7509C16.9875 3.90632 16.986 4.09826 16.8955 4.25286L15.5791 6.49994L16.8955 8.74702C16.986 8.90159 16.9874 9.09354 16.8984 9.24898C16.8093 9.40436 16.643 9.49996 16.4638 9.49996H11.5C11.3198 9.49996 11.1532 9.4028 11.0644 9.24605C10.976 9.08949 10.9789 8.89736 11.0713 8.74312L12.417 6.49994L11.0713 4.25676C10.9789 4.1025 10.976 3.91037 11.0644 3.75383C11.1532 3.59717 11.3199 3.49992 11.5 3.49992H16.4638C16.6429 3.51309 16.8055 3.58909 16.8984 3.7509ZM13.4287 6.2431C13.5152 6.4107 13.5166 6.58638 13.4287 6.75678L12.3828 8.49995H15.5918L14.5683 6.75287C14.477 6.59683 14.477 6.40303 14.5683 6.24701L15.5918 4.49993H12.3828L13.4287 6.2431Z"></path>
+                                    <path d="M7.25293 10.9668C7.40708 10.8793 7.59647 10.8801 7.75 10.9687C7.90356 11.0574 7.99869 11.2211 8 11.3984L8.01074 12.8388L9.30762 13.6054C9.42811 13.6994 9.49994 13.8448 9.5 14C9.5 14.1773 9.40587 14.3418 9.25293 14.4316L8.01074 15.1601L7.99512 16.667C7.97406 16.8184 7.88446 16.9536 7.75 17.0312C7.59642 17.1199 7.40713 17.1207 7.25293 17.0332L6 16.3203L4.74707 17.0332C4.59287 17.1207 4.40358 17.1199 4.25 17.0312C4.09643 16.9425 4.00124 16.7789 4 16.6015L3.99023 15.1601L2.74707 14.4316C2.59413 14.3418 2.5 14.1773 2.5 14C2.50006 13.8448 2.57188 13.6994 2.69238 13.6054L3.99023 12.8388L4 11.3984C4.00131 11.2211 4.09644 11.0574 4.25 10.9687C4.40353 10.8801 4.59292 10.8793 4.74707 10.9668L6 11.6787L7.25293 10.9668ZM4.99512 12.2568L5.75293 12.6884C5.90608 12.7754 6.09392 12.7754 6.24707 12.6884L7.00586 12.2568L7.01172 13.1308C7.01308 13.3068 7.10706 13.4695 7.25879 13.5586L8.01172 14L7.25879 14.4414C7.10706 14.5304 7.01315 14.6932 7.01172 14.8691L7.00586 15.7422L6.24707 15.3115C6.09397 15.2246 5.90603 15.2246 5.75293 15.3115L4.99512 15.7422L4.98828 14.8691C4.98703 14.7152 4.91459 14.5716 4.79492 14.4785L3.98926 14L4.74121 13.5586C4.87421 13.4805 4.96267 13.3457 4.9834 13.1953L4.99512 12.2568Z"></path>
+                                    <path d="M14 11C15.6568 11 16.9999 12.3432 17 14C17 15.6568 15.6569 17 14 17C12.3431 17 11 15.6568 11 14C11.0001 12.3432 12.3432 11 14 11ZM12 14C12.0001 12.8955 12.8955 12 14 12C15.1045 12 15.9999 12.8955 16 14C16 15.1045 15.1046 16 14 16C12.8954 16 12 15.1045 12 14Z"></path>
+                                </svg>
+                            </span>
+                            <span class="nav-copy">
+                                <span class="nav-label">Artifacts</span>
+                            </span>
+                        </a>
+
+                        <div class="empty-state">Your chats will show up here</div>
+                    </div>
+                </div>
+
+                <div class="sidebar-footer">
+                    <button class="user-card" type="button" aria-label="Regina Velasquezll, Settings">
+                        <span class="avatar">RV</span>
+                        <span class="user-copy">
+                            <span class="user-name">Regina Velasquezll</span>
+                            <span class="user-plan">Free plan</span>
+                        </span>
+                        <span class="download-apps" aria-hidden="true">
+                            <svg width="16" height="16" viewBox="0 0 20 20" fill="currentColor">
+                                <path d="M16.5 13a.5.5 0 0 1 .5.5v2a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 3 15.5v-2a.5.5 0 0 1 1 0v2a.5.5 0 0 0 .5.5h11a.5.5 0 0 0 .5-.5v-2a.5.5 0 0 1 .5-.5M10 3a.5.5 0 0 1 .5.5v8.686l3.126-3.518a.5.5 0 0 1 .748.664l-4 4.5-.08.071a.5.5 0 0 1-.668-.071l-4-4.5-.059-.082A.5.5 0 0 1 6.3 8.6l.075.068L9.5 12.186V3.5A.5.5 0 0 1 10 3"></path>
+                            </svg>
+                        </span>
+                        <span class="user-chevron" aria-hidden="true">
+                            <svg width="14" height="14" viewBox="0 0 256 256" fill="currentColor">
+                                <path d="M181.66,170.34a8,8,0,0,1,0,11.32l-48,48a8,8,0,0,1-11.32,0l-48-48a8,8,0,0,1,11.32-11.32L128,212.69l42.34-42.35A8,8,0,0,1,181.66,170.34Zm-96-84.68L128,43.31l42.34,42.35a8,8,0,0,0,11.32-11.32l-48-48a8,8,0,0,0-11.32,0l-48,48A8,8,0,0,0,85.66,85.66Z"></path>
+                            </svg>
+                        </span>
+                    </button>
+                </div>
+            </nav>
+        </aside>
+
+        <main class="workspace">
+            <div class="workspace-inner">
+                <section class="main-center">
+                    <div class="panel-pill">
+                        <span><a href="#">Get Pro</a></span>
+                    </div>
+
+                    <div class="hero">
+                        <span class="hero-icon" aria-hidden="true">
+                            <svg viewBox="0 0 100 100" fill="currentColor">
+                                <path d="m19.6 66.5 19.7-11 .3-1-.3-.5h-1l-3.3-.2-11.2-.3L14 53l-9.5-.5-2.4-.5L0 49l.2-1.5 2-1.3 2.9.2 6.3.5 9.5.6 6.9.4L38 49.1h1.6l.2-.7-.5-.4-.4-.4L29 41l-10.6-7-5.6-4.1-3-2-1.5-2-.6-4.2 2.7-3 3.7.3.9.2 3.7 2.9 8 6.1L37 36l1.5 1.2.6-.4.1-.3-.7-1.1L33 25l-6-10.4-2.7-4.3-.7-2.6c-.3-1-.4-2-.4-3l3-4.2L28 0l4.2.6L33.8 2l2.6 6 4.1 9.3L47 29.9l2 3.8 1 3.4.3 1h.7v-.5l.5-7.2 1-8.7 1-11.2.3-3.2 1.6-3.8 3-2L61 2.6l2 2.9-.3 1.8-1.1 7.7L59 27.1l-1.5 8.2h.9l1-1.1 4.1-5.4 6.9-8.6 3-3.5L77 13l2.3-1.8h4.3l3.1 4.7-1.4 4.9-4.4 5.6-3.7 4.7-5.3 7.1-3.2 5.7.3.4h.7l12-2.6 6.4-1.1 7.6-1.3 3.5 1.6.4 1.6-1.4 3.4-8.2 2-9.6 2-14.3 3.3-.2.1.2.3 6.4.6 2.8.2h6.8l12.6 1 3.3 2 1.9 2.7-.3 2-5.1 2.6-6.8-1.6-16-3.8-5.4-1.3h-.8v.4l4.6 4.5 8.3 7.5L89 80.1l.5 2.4-1.3 2-1.4-.2-9.2-7-3.6-3-8-6.8h-.5v.7l1.8 2.7 9.8 14.7.5 4.5-.7 1.4-2.6 1-2.7-.6-5.8-8-6-9-4.7-8.2-.5.4-2.9 30.2-1.3 1.5-3 1.2-2.5-2-1.4-3 1.4-6.2 1.6-8 1.3-6.4 1.2-7.9.7-2.6v-.2H49L43 72l-9 12.3-7.2 7.6-1.7.7-3-1.5.3-2.8L24 86l10-12.8 6-7.9 4-4.6-.1-.5h-.3L17.2 77.4l-4.7.6-2-2 .2-3 1-1 8-5.5Z"></path>
+                            </svg>
+                        </span>
+                        <span class="hero-title">Regina Velasquezll returns!</span>
+                    </div>
+
+                    <section class="composer-stack">
+                        <div class="counter-wrap">
+                            <div class="counter-card">
+                                <div class="counter-meta">
+                                    <div>已发出:0条 剩余:20条 (0:01重置)</div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="composer-card">
+                            <div class="editor-shell">
+                                <div class="editor" id="composerEditor" contenteditable="true" role="textbox" aria-label="Write your prompt to Claude" aria-multiline="true"></div>
+                                <span class="editor-placeholder" id="composerPlaceholder">How can I help you today?</span>
+                            </div>
+
+                            <div class="composer-footer">
+                                <div class="composer-left">
+                                    <button class="icon-button" id="fileButton" type="button" aria-label="Add files, connectors, and more">
+                                        <svg width="20" height="20" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+                                            <path d="M10 3a.5.5 0 0 1 .5.5v6h6l.1.01a.5.5 0 0 1 0 .98l-.1.01h-6v6a.5.5 0 0 1-1 0v-6h-6a.5.5 0 0 1 0-1h6v-6A.5.5 0 0 1 10 3"></path>
+                                        </svg>
+                                    </button>
+                                </div>
+
+                                <div class="composer-right">
+                                    <button class="model-button" id="modelButton" type="button" aria-label="Model selector">
+                                        <span>Sonnet 4.6</span>
+                                        <svg width="12" height="12" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+                                            <path d="M14.128 7.165a.502.502 0 0 1 .744.67l-4.5 5-.078.07a.5.5 0 0 1-.666-.07l-4.5-5-.06-.082a.501.501 0 0 1 .729-.656l.075.068L10 11.752z"></path>
+                                        </svg>
+                                    </button>
+
+                                    <button class="voice-button" type="button" aria-label="Use voice mode">
+                                        <svg width="21" height="21" viewBox="0 0 21 21" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                                            <rect x="0" y="7.5" height="6" width="1" rx="0.5" fill="currentColor"></rect>
+                                            <rect x="4" y="5.5" height="10" width="1" rx="0.5" fill="currentColor"></rect>
+                                            <rect x="8" y="2.5" height="16" width="1" rx="0.5" fill="currentColor"></rect>
+                                            <rect x="12" y="5.5" height="10" width="1" rx="0.5" fill="currentColor"></rect>
+                                            <rect x="16" y="2.5" height="16" width="1" rx="0.5" fill="currentColor"></rect>
+                                            <rect x="20" y="7.5" height="6" width="1" rx="0.5" fill="currentColor"></rect>
+                                        </svg>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </section>
+
+                    <ul class="category-list" role="tablist" aria-label="Prompt categories">
+                        <li>
+                            <button class="category-button" type="button" role="tab" aria-selected="true">
+                                <svg width="20" height="20" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true">
+                                    <path d="M176,232a8,8,0,0,1-8,8H88a8,8,0,0,1,0-16h80A8,8,0,0,1,176,232Zm40-128a87.55,87.55,0,0,1-33.64,69.21A16.24,16.24,0,0,0,176,186v6a16,16,0,0,1-16,16H96a16,16,0,0,1-16-16v-6a16,16,0,0,0-6.23-12.66A87.59,87.59,0,0,1,40,104.49C39.74,56.83,78.26,17.14,125.88,16A88,88,0,0,1,216,104Zm-16,0a72,72,0,0,0-73.74-72c-39,.92-70.47,33.39-70.26,72.39a71.65,71.65,0,0,0,27.64,56.3A32,32,0,0,1,96,186v6h64v-6a32.15,32.15,0,0,1,12.47-25.35A71.65,71.65,0,0,0,200,104Zm-16.11-9.34a57.6,57.6,0,0,0-46.56-46.55,8,8,0,0,0-2.66,15.78c16.57,2.79,30.63,16.85,33.44,33.45A8,8,0,0,0,176,104a9,9,0,0,0,1.35-.11A8,8,0,0,0,183.89,94.66Z"></path>
+                                </svg>
+                                <span>Claude’s choice</span>
+                            </button>
+                        </li>
+                        <li>
+                            <button class="category-button" type="button" role="tab" aria-selected="false">
+                                <svg width="20" height="20" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true">
+                                    <path d="M227.31,73.37,182.63,28.68a16,16,0,0,0-22.63,0L36.69,152A15.86,15.86,0,0,0,32,163.31V208a16,16,0,0,0,16,16H92.69A15.86,15.86,0,0,0,104,219.31L227.31,96a16,16,0,0,0,0-22.63ZM92.69,208H48V163.31l88-88L180.69,120ZM192,108.68,147.31,64l24-24L216,84.68Z"></path>
+                                </svg>
+                                <span>Write</span>
+                            </button>
+                        </li>
+                        <li>
+                            <button class="category-button" type="button" role="tab" aria-selected="false">
+                                <svg width="20" height="20" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true">
+                                    <path d="M251.76,88.94l-120-64a8,8,0,0,0-7.52,0l-120,64a8,8,0,0,0,0,14.12L32,117.87v48.42a15.91,15.91,0,0,0,4.06,10.65C49.16,191.53,78.51,216,128,216a130,130,0,0,0,48-8.76V240a8,8,0,0,0,16,0V199.51a115.63,115.63,0,0,0,27.94-22.57A15.91,15.91,0,0,0,224,166.29V117.87l27.76-14.81a8,8,0,0,0,0-14.12ZM128,200c-43.27,0-68.72-21.14-80-33.71V126.4l76.24,40.66a8,8,0,0,0,7.52,0L176,143.47v46.34C163.4,195.69,147.52,200,128,200Zm80-33.75a97.83,97.83,0,0,1-16,14.25V134.93l16-8.53ZM188,118.94l-.22-.13-56-29.87a8,8,0,0,0-7.52,14.12L171,128l-43,22.93L25,96,128,41.07,231,96Z"></path>
+                                </svg>
+                                <span>Learn</span>
+                            </button>
+                        </li>
+                        <li>
+                            <button class="category-button" type="button" role="tab" aria-selected="false">
+                                <svg width="20" height="20" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true">
+                                    <path d="M69.12,94.15,28.5,128l40.62,33.85a8,8,0,1,1-10.24,12.29l-48-40a8,8,0,0,1,0-12.29l48-40a8,8,0,0,1,10.24,12.3Zm176,27.7-48-40a8,8,0,1,0-10.24,12.3L227.5,128l-40.62,33.85a8,8,0,1,0,10.24,12.29l48-40a8,8,0,0,0,0-12.29ZM162.73,32.48a8,8,0,0,0-10.25,4.79l-64,176a8,8,0,0,0,4.79,10.26A8.14,8.14,0,0,0,96,224a8,8,0,0,0,7.52-5.27l64-176A8,8,0,0,0,162.73,32.48Z"></path>
+                                </svg>
+                                <span>Code</span>
+                            </button>
+                        </li>
+                        <li>
+                            <button class="category-button" type="button" role="tab" aria-selected="false">
+                                <svg width="20" height="20" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true">
+                                    <path d="M80,56V24a8,8,0,0,1,16,0V56a8,8,0,0,1-16,0Zm40,8a8,8,0,0,0,8-8V24a8,8,0,0,0-16,0V56A8,8,0,0,0,120,64Zm32,0a8,8,0,0,0,8-8V24a8,8,0,0,0-16,0V56A8,8,0,0,0,152,64Zm96,56v8a40,40,0,0,1-37.51,39.91,96.59,96.59,0,0,1-27,40.09H208a8,8,0,0,1,0,16H32a8,8,0,0,1,0-16H56.54A96.3,96.3,0,0,1,24,136V88a8,8,0,0,1,8-8H208A40,40,0,0,1,248,120ZM200,96H40v40a80.27,80.27,0,0,0,45.12,72h69.76A80.27,80.27,0,0,0,200,136Zm32,24a24,24,0,0,0-16-22.62V136a95.78,95.78,0,0,1-1.2,15A24,24,0,0,0,232,128Z"></path>
+                                </svg>
+                                <span>Life stuff</span>
+                            </button>
+                        </li>
+                    </ul>
+                </section>
+            </div>
+        </main>
+    </div>
+
+    <div class="backdrop" id="sidebarBackdrop" aria-hidden="true"></div>
+    <input id="mockFileInput" type="file" hidden>
+
+    <script>
+        (function () {
+            const body = document.body;
+            const sidebarShell = document.getElementById("sidebarShell");
+            const sidebarToggle = document.getElementById("sidebarToggle");
+            const sidebarBackdrop = document.getElementById("sidebarBackdrop");
+            const mobileMenuButton = document.getElementById("mobileMenuButton");
+            const editor = document.getElementById("composerEditor");
+            const placeholder = document.getElementById("composerPlaceholder");
+            const newChatButton = document.getElementById("newChatButton");
+            const fileButton = document.getElementById("fileButton");
+            const mockFileInput = document.getElementById("mockFileInput");
+            const categoryButtons = document.querySelectorAll(".category-button");
+
+            function syncPlaceholder() {
+                placeholder.style.display = editor.textContent.trim() ? "none" : "block";
+            }
+
+            function closeMobileSidebar() {
+                sidebarShell.classList.remove("mobile-open");
+                sidebarBackdrop.classList.remove("mobile-visible");
+            }
+
+            function openMobileSidebar() {
+                sidebarShell.classList.add("mobile-open");
+                sidebarBackdrop.classList.add("mobile-visible");
+            }
+
+            function toggleSidebar() {
+                if (window.innerWidth <= 980) {
+                    if (sidebarShell.classList.contains("mobile-open")) {
+                        closeMobileSidebar();
+                    } else {
+                        openMobileSidebar();
+                    }
+                    return;
+                }
+
+                body.classList.toggle("desktop-collapsed");
+                const collapsed = body.classList.contains("desktop-collapsed");
+                sidebarToggle.setAttribute("aria-label", collapsed ? "Open sidebar" : "Close sidebar");
+                sidebarToggle.setAttribute("aria-pressed", String(!collapsed));
+            }
+
+            syncPlaceholder();
+
+            editor.addEventListener("input", syncPlaceholder);
+            editor.addEventListener("focus", syncPlaceholder);
+            editor.addEventListener("blur", syncPlaceholder);
+            editor.addEventListener("keydown", function (event) {
+                if (event.key === "Enter" && !event.shiftKey) {
+                    event.preventDefault();
+                    document.querySelector(".counter-card").animate(
+                        [
+                            { transform: "translateY(0)" },
+                            { transform: "translateY(-2px)" },
+                            { transform: "translateY(0)" }
+                        ],
+                        { duration: 220, easing: "ease-out" }
+                    );
+                }
+            });
+
+            sidebarToggle.addEventListener("click", toggleSidebar);
+            mobileMenuButton.addEventListener("click", openMobileSidebar);
+            sidebarBackdrop.addEventListener("click", closeMobileSidebar);
+
+            window.addEventListener("resize", function () {
+                if (window.innerWidth > 980) {
+                    closeMobileSidebar();
+                }
+            });
+
+            newChatButton.addEventListener("click", function () {
+                editor.textContent = "";
+                syncPlaceholder();
+                editor.focus();
+            });
+
+            fileButton.addEventListener("click", function () {
+                mockFileInput.click();
+            });
+
+            categoryButtons.forEach(function (button) {
+                button.addEventListener("click", function () {
+                    categoryButtons.forEach(function (item) {
+                        item.setAttribute("aria-selected", "false");
+                    });
+                    button.setAttribute("aria-selected", "true");
+                });
+            });
+        }());
+    </script>
+</body>
+</html>

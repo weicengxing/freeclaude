@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>UUAPI Chat</title>
-    <link rel="stylesheet" href="/static/app.css?v=20260419d">
+    <link rel="stylesheet" href="/static/app.css?v=20260419h">
 </head>
 <body>
     <div class="shell">
@@ -216,6 +216,9 @@
             sessionId: null,
             sessions: [],
             messages: [],
+            openMessageMenuId: null,
+            editingMessageId: null,
+            editingDraft: "",
             selectedImages: [],
             selectedFiles: [],
             selectedImage: null,
@@ -538,12 +541,102 @@
             `;
         }
 
+        function canEditMessage(message) {
+            return message?.role === "user" && !getMessageImages(message).length && !getMessageFiles(message).length;
+        }
+
+        function syncMessageMenus() {
+            messagesEl.querySelectorAll(".message").forEach((messageEl) => {
+                const messageId = Number(messageEl.dataset.messageId);
+                const open = state.openMessageMenuId === messageId;
+                messageEl.classList.toggle("menu-open", open);
+                const menuEl = messageEl.querySelector(".message-menu");
+                const panelEl = messageEl.querySelector(".message-menu-panel");
+                const triggerEl = messageEl.querySelector("[data-more-message]");
+                if (menuEl) {
+                    menuEl.classList.toggle("open", open);
+                }
+                if (panelEl) {
+                    panelEl.classList.toggle("hidden", !open);
+                }
+                if (triggerEl) {
+                    triggerEl.setAttribute("aria-expanded", open ? "true" : "false");
+                }
+            });
+        }
+
+        function closeMessageMenu({ rerender = true } = {}) {
+            if (state.openMessageMenuId === null) {
+                return;
+            }
+            state.openMessageMenuId = null;
+            if (rerender) {
+                syncMessageMenus();
+            }
+        }
+
+        function toggleMessageMenu(messageId) {
+            state.openMessageMenuId = state.openMessageMenuId === messageId ? null : messageId;
+            syncMessageMenus();
+        }
+
+        function startInlineEdit(message) {
+            if (!canEditMessage(message)) {
+                setStatus("带附件的消息暂不支持编辑后重发");
+                return;
+            }
+            state.editingMessageId = message.id;
+            state.editingDraft = message.content || "";
+            state.openMessageMenuId = null;
+            renderMessages({ preserveScroll: true });
+            const editor = messagesEl.querySelector(`[data-inline-editor="${message.id}"]`);
+            if (editor) {
+                editor.focus();
+                editor.setSelectionRange(editor.value.length, editor.value.length);
+            }
+        }
+
+        function cancelInlineEdit() {
+            if (state.editingMessageId === null) {
+                return;
+            }
+            state.editingMessageId = null;
+            state.editingDraft = "";
+            renderMessages({ preserveScroll: true });
+        }
+
+        async function saveInlineEdit(messageId) {
+            if (state.sending) {
+                return;
+            }
+            const target = state.messages.find((item) => item.id === messageId);
+            if (!target) {
+                setStatus("未找到要编辑的消息");
+                return;
+            }
+            const trimmed = state.editingDraft.trim();
+            if (!trimmed) {
+                setStatus("消息不能为空");
+                return;
+            }
+            await editAndResendMessage(target, trimmed);
+        }
+
 
         function bindMessageEvents(scope = messagesEl) {
+            scope.querySelectorAll("[data-more-message]").forEach((button) => {
+                if (button.dataset.boundMore === "1") return;
+                button.dataset.boundMore = "1";
+                button.addEventListener("click", (event) => {
+                    event.stopPropagation();
+                    toggleMessageMenu(Number(button.dataset.moreMessage));
+                });
+            });
             scope.querySelectorAll("[data-delete-message]").forEach((button) => {
                 if (button.dataset.boundDelete === "1") return;
                 button.dataset.boundDelete = "1";
                 button.addEventListener("click", async () => {
+                    closeMessageMenu({ rerender: false });
                     if (!isPersistedMessageId(button.dataset.deleteMessage)) {
                         setStatus("这条消息还未保存，请等待本轮回复结束后再操作。");
                         return;
@@ -555,14 +648,47 @@
                 if (button.dataset.boundEdit === "1") return;
                 button.dataset.boundEdit = "1";
                 button.addEventListener("click", async () => {
+                    closeMessageMenu({ rerender: false });
                     if (!isPersistedMessageId(button.dataset.editMessage)) {
                         setStatus("这条消息还未保存，请等待本轮回复结束后再编辑。");
                         return;
                     }
                     const target = state.messages.find((item) => item.id === Number(button.dataset.editMessage));
                     if (target) {
-                        await editAndResendMessage(target);
+                        startInlineEdit(target);
                     }
+                });
+            });
+            scope.querySelectorAll("[data-inline-editor]").forEach((textarea) => {
+                if (textarea.dataset.boundEditor === "1") return;
+                textarea.dataset.boundEditor = "1";
+                textarea.addEventListener("input", () => {
+                    state.editingDraft = textarea.value;
+                });
+                textarea.addEventListener("keydown", async (event) => {
+                    if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
+                        event.preventDefault();
+                        await saveInlineEdit(Number(textarea.dataset.inlineEditor));
+                        return;
+                    }
+                    if (event.key === "Escape") {
+                        event.preventDefault();
+                        cancelInlineEdit();
+                    }
+                });
+            });
+            scope.querySelectorAll("[data-save-edit-message]").forEach((button) => {
+                if (button.dataset.boundSaveEdit === "1") return;
+                button.dataset.boundSaveEdit = "1";
+                button.addEventListener("click", async () => {
+                    await saveInlineEdit(Number(button.dataset.saveEditMessage));
+                });
+            });
+            scope.querySelectorAll("[data-cancel-edit-message]").forEach((button) => {
+                if (button.dataset.boundCancelEdit === "1") return;
+                button.dataset.boundCancelEdit = "1";
+                button.addEventListener("click", () => {
+                    cancelInlineEdit();
                 });
             });
             scope.querySelectorAll(".zoomable-image").forEach((image) => {
@@ -904,7 +1030,8 @@
             });
         }
 
-function renderMessages() {
+function renderMessages({ preserveScroll = false, forceScrollBottom = false } = {}) {
+            const shouldStickBottom = !preserveScroll && isMessagesNearBottom();
             if (!state.messages.length) {
                 messagesEl.innerHTML = `<div class="helper">${state.auth?.authenticated ? "这里还没有消息，开始第一轮提问吧。" : "登录后即可查看和发送消息。"}</div>`;
                 return;
@@ -912,7 +1039,9 @@ function renderMessages() {
 
             messagesEl.innerHTML = state.messages.map((message) => buildMessageHtml(message)).join("");
             bindMessageEvents();
-            scrollMessagesToBottom();
+            if (forceScrollBottom || shouldStickBottom) {
+                scrollMessagesToBottom();
+            }
         }
 
 
@@ -1662,6 +1791,20 @@ function renderMessages() {
         document.addEventListener("keydown", (event) => {
             if (event.key === "Escape" && !imageLightboxEl.classList.contains("hidden")) {
                 closeImageLightbox();
+                return;
+            }
+            if (event.key === "Escape" && state.openMessageMenuId !== null) {
+                closeMessageMenu();
+                return;
+            }
+            if (event.key === "Escape" && state.editingMessageId !== null) {
+                cancelInlineEdit();
+            }
+        });
+
+        document.addEventListener("click", (event) => {
+            if (!event.target.closest(".message-menu") && state.openMessageMenuId !== null) {
+                closeMessageMenu();
             }
         });
 
@@ -1998,18 +2141,40 @@ function renderMessages() {
         function buildMessageHtml(message) {
             const images = getMessageImages(message);
             const files = getMessageFiles(message);
+            const canEdit = canEditMessage(message);
+            const isEditing = state.editingMessageId === message.id;
+            const menuOpen = state.openMessageMenuId === message.id;
             return `
-                <div class="message ${message.role}" data-message-id="${message.id}">
+                <div class="message ${message.role} ${menuOpen ? "menu-open" : ""}" data-message-id="${message.id}">
                     <div class="message-top">
                         <div class="message-role">${message.role === "user" ? "用户" : "AI"}</div>
                         <div class="message-actions">
-                            ${message.role === "user" && !images.length && !files.length ? `<button class="message-btn" type="button" data-edit-message="${message.id}">编辑后重发</button>` : ""}
-                            <button class="message-btn danger" type="button" data-delete-message="${message.id}">从此删除</button>
+                            <div class="message-menu ${menuOpen ? "open" : ""}">
+                                <button class="message-icon-btn" type="button" data-more-message="${message.id}" aria-label="更多操作" aria-expanded="${menuOpen ? "true" : "false"}">&#8942;</button>
+                                <div class="message-menu-panel ${menuOpen ? "" : "hidden"}">
+                                    ${canEdit ? `<button class="message-btn" type="button" data-edit-message="${message.id}">编辑后重发</button>` : ""}
+                                    <button class="message-btn danger" type="button" data-delete-message="${message.id}">从此删除</button>
+                                </div>
+                            </div>
                         </div>
                     </div>
                     ${buildMessageImagesHtml({ images })}
                     ${buildMessageFilesHtml({ files })}
-                    <div class="message-content ${message.content ? "" : "hidden"}" data-message-content="${message.id}">${message.content ? formatMessageContent(message) : ""}</div>
+                    ${isEditing ? buildInlineMessageEditorHtml(message) : ""}
+                    <div class="message-content ${message.content && !isEditing ? "" : "hidden"}" data-message-content="${message.id}">${message.content ? formatMessageContent(message) : ""}</div>
+                </div>
+            `;
+        }
+
+        function buildInlineMessageEditorHtml(message) {
+            const draft = state.editingMessageId === message.id ? state.editingDraft : (message.content || "");
+            return `
+                <div class="message-inline-editor">
+                    <textarea data-inline-editor="${message.id}" placeholder="修改后会从这里重新生成后续对话。">${escapeHtml(draft)}</textarea>
+                    <div class="message-inline-actions">
+                        <button class="ghost-btn" type="button" data-cancel-edit-message="${message.id}">取消</button>
+                        <button class="primary-btn" type="button" data-save-edit-message="${message.id}">保存并重发</button>
+                    </div>
                 </div>
             `;
         }
@@ -2050,13 +2215,16 @@ function renderMessages() {
             return image;
         }
 
-        async function editAndResendMessage(message) {
+        async function editAndResendMessage(message, nextContent) {
             if (getMessageImages(message).length || getMessageFiles(message).length) {
                 setStatus("带附件的消息暂不支持编辑后重发");
                 return;
             }
-            const edited = window.prompt("修改后会从这里重新生成后续对话。", message.content);
-            if (edited === null) return;
+            if (typeof nextContent !== "string") {
+                startInlineEdit(message);
+                return;
+            }
+            const edited = nextContent;
 
             const trimmed = edited.trim();
             if (!trimmed) {
@@ -2081,6 +2249,13 @@ function renderMessages() {
                 };
             });
 
+            const inlineEditMode = typeof nextContent === "string";
+            if (inlineEditMode) {
+                state.editingMessageId = null;
+                state.editingDraft = "";
+            }
+            state.openMessageMenuId = null;
+
             const optimisticAssistantId = uid();
             state.messages = [
                 ...state.messages.slice(0, targetIndex),
@@ -2088,7 +2263,7 @@ function renderMessages() {
                 { id: optimisticAssistantId, role: "assistant", content: UPSTREAM_WAITING_TEXT, images: [], image: null, files: [] },
             ];
             state.currentAssistantMessageId = optimisticAssistantId;
-            renderMessages();
+            renderMessages({ forceScrollBottom: true });
             setSending(true);
             setStatus(UPSTREAM_WAITING_TEXT);
 
@@ -2171,7 +2346,11 @@ function renderMessages() {
                 }
             } catch (error) {
                 state.messages = previousMessages;
-                renderMessages();
+                if (inlineEditMode) {
+                    state.editingMessageId = message.id;
+                    state.editingDraft = trimmed;
+                }
+                renderMessages({ preserveScroll: true });
                 setStatus(error.message || "重发失败");
             } finally {
                 state.currentAssistantMessageId = null;

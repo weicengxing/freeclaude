@@ -1,0 +1,511 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>星河之境 · 精美展示页</title>
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    :root {
+      --bg: #080b18;
+      --card: rgba(255, 255, 255, 0.1);
+      --line: rgba(255, 255, 255, 0.18);
+      --text: #f7f7fb;
+      --muted: #b8bed8;
+      --primary: #8b5cf6;
+      --secondary: #22d3ee;
+      --accent: #f59e0b;
+      --shadow: 0 24px 80px rgba(0, 0, 0, 0.45);
+    }
+
+    body {
+      min-height: 100vh;
+      font-family: "Inter", "Microsoft YaHei", "PingFang SC", system-ui, sans-serif;
+      color: var(--text);
+      background:
+        radial-gradient(circle at 20% 20%, rgba(139, 92, 246, 0.45), transparent 30%),
+        radial-gradient(circle at 80% 10%, rgba(34, 211, 238, 0.32), transparent 26%),
+        radial-gradient(circle at 50% 90%, rgba(245, 158, 11, 0.22), transparent 34%),
+        var(--bg);
+      overflow-x: hidden;
+    }
+
+    body::before {
+      content: "";
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      background-image:
+        linear-gradient(rgba(255,255,255,0.04) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255,255,255,0.04) 1px, transparent 1px);
+      background-size: 48px 48px;
+      mask-image: linear-gradient(to bottom, black, transparent 80%);
+    }
+
+    .orb {
+      position: fixed;
+      width: 420px;
+      height: 420px;
+      border-radius: 999px;
+      filter: blur(20px);
+      opacity: 0.28;
+      animation: float 10s ease-in-out infinite alternate;
+      pointer-events: none;
+    }
+
+    .orb.one {
+      left: -120px;
+      top: 120px;
+      background: var(--primary);
+    }
+
+    .orb.two {
+      right: -140px;
+      bottom: 40px;
+      background: var(--secondary);
+      animation-delay: -3s;
+    }
+
+    @keyframes float {
+      from { transform: translateY(0) scale(1); }
+      to { transform: translateY(-40px) scale(1.08); }
+    }
+
+    .page {
+      position: relative;
+      width: min(1160px, calc(100% - 40px));
+      margin: 0 auto;
+      padding: 28px 0 64px;
+    }
+
+    nav {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 20px;
+      padding: 16px 20px;
+      margin-bottom: 70px;
+      border: 1px solid var(--line);
+      border-radius: 28px;
+      background: rgba(255, 255, 255, 0.08);
+      backdrop-filter: blur(18px);
+      box-shadow: var(--shadow);
+    }
+
+    .logo {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      font-weight: 800;
+      letter-spacing: 0.08em;
+    }
+
+    .logo-mark {
+      display: grid;
+      place-items: center;
+      width: 42px;
+      height: 42px;
+      border-radius: 16px;
+      background: linear-gradient(135deg, var(--primary), var(--secondary));
+      box-shadow: 0 12px 32px rgba(34, 211, 238, 0.32);
+    }
+
+    .nav-links {
+      display: flex;
+      gap: 24px;
+      list-style: none;
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    .nav-links a {
+      color: inherit;
+      text-decoration: none;
+      transition: color 0.2s ease;
+    }
+
+    .nav-links a:hover {
+      color: var(--text);
+    }
+
+    .hero {
+      display: grid;
+      grid-template-columns: 1.08fr 0.92fr;
+      align-items: center;
+      gap: 48px;
+    }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 14px;
+      margin-bottom: 22px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.08);
+      color: var(--muted);
+      font-size: 14px;
+      backdrop-filter: blur(14px);
+    }
+
+    .badge span {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #34d399;
+      box-shadow: 0 0 20px #34d399;
+    }
+
+    h1 {
+      max-width: 720px;
+      font-size: clamp(42px, 7vw, 88px);
+      line-height: 0.98;
+      letter-spacing: -0.07em;
+    }
+
+    .gradient-text {
+      background: linear-gradient(120deg, #fff, #c4b5fd 35%, #67e8f9 72%, #fde68a);
+      -webkit-background-clip: text;
+      background-clip: text;
+      color: transparent;
+    }
+
+    .subtitle {
+      max-width: 620px;
+      margin: 26px 0 34px;
+      color: var(--muted);
+      font-size: 18px;
+      line-height: 1.8;
+    }
+
+    .actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 16px;
+    }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 52px;
+      padding: 0 24px;
+      border-radius: 18px;
+      border: 1px solid var(--line);
+      color: var(--text);
+      text-decoration: none;
+      font-weight: 700;
+      transition: transform 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
+    }
+
+    .btn:hover {
+      transform: translateY(-3px);
+    }
+
+    .btn.primary {
+      border: none;
+      background: linear-gradient(135deg, var(--primary), var(--secondary));
+      box-shadow: 0 18px 42px rgba(139, 92, 246, 0.36);
+    }
+
+    .btn.ghost {
+      background: rgba(255, 255, 255, 0.08);
+      backdrop-filter: blur(12px);
+    }
+
+    .showcase {
+      position: relative;
+      min-height: 520px;
+      border: 1px solid var(--line);
+      border-radius: 36px;
+      background:
+        linear-gradient(145deg, rgba(255,255,255,0.18), rgba(255,255,255,0.05)),
+        rgba(255, 255, 255, 0.08);
+      backdrop-filter: blur(20px);
+      box-shadow: var(--shadow);
+      overflow: hidden;
+    }
+
+    .showcase::before {
+      content: "";
+      position: absolute;
+      inset: -2px;
+      background: conic-gradient(from 180deg, transparent, rgba(34,211,238,0.5), transparent, rgba(139,92,246,0.55), transparent);
+      animation: spin 8s linear infinite;
+      opacity: 0.7;
+    }
+
+    .showcase::after {
+      content: "";
+      position: absolute;
+      inset: 2px;
+      border-radius: 34px;
+      background: rgba(8, 11, 24, 0.86);
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
+    .panel {
+      position: absolute;
+      z-index: 1;
+      inset: 24px;
+      display: grid;
+      grid-template-rows: auto 1fr auto;
+      gap: 24px;
+    }
+
+    .window-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .dots {
+      display: flex;
+      gap: 8px;
+    }
+
+    .dots i {
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      background: rgba(255,255,255,0.28);
+    }
+
+    .visual-card {
+      display: grid;
+      place-items: center;
+      border-radius: 28px;
+      background:
+        radial-gradient(circle at 50% 35%, rgba(34, 211, 238, 0.28), transparent 34%),
+        linear-gradient(135deg, rgba(139, 92, 246, 0.18), rgba(245, 158, 11, 0.12));
+      border: 1px solid var(--line);
+      overflow: hidden;
+    }
+
+    .planet {
+      position: relative;
+      width: 210px;
+      height: 210px;
+      border-radius: 50%;
+      background:
+        radial-gradient(circle at 35% 30%, #fff, transparent 12%),
+        linear-gradient(135deg, #8b5cf6, #22d3ee 52%, #f59e0b);
+      box-shadow: 0 0 80px rgba(34, 211, 238, 0.45);
+      animation: pulse 4s ease-in-out infinite;
+    }
+
+    .planet::before {
+      content: "";
+      position: absolute;
+      inset: 84px -58px;
+      border: 2px solid rgba(255,255,255,0.42);
+      border-radius: 50%;
+      transform: rotate(-14deg);
+    }
+
+    @keyframes pulse {
+      50% { transform: translateY(-12px) scale(1.03); }
+    }
+
+    .stats {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 12px;
+    }
+
+    .stat {
+      padding: 16px;
+      border: 1px solid var(--line);
+      border-radius: 22px;
+      background: rgba(255, 255, 255, 0.07);
+    }
+
+    .stat strong {
+      display: block;
+      margin-bottom: 4px;
+      font-size: 22px;
+    }
+
+    .stat small {
+      color: var(--muted);
+    }
+
+    .features {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 18px;
+      margin-top: 76px;
+    }
+
+    .feature {
+      padding: 26px;
+      border: 1px solid var(--line);
+      border-radius: 28px;
+      background: rgba(255, 255, 255, 0.08);
+      backdrop-filter: blur(16px);
+      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.22);
+    }
+
+    .icon {
+      display: grid;
+      place-items: center;
+      width: 50px;
+      height: 50px;
+      margin-bottom: 18px;
+      border-radius: 18px;
+      background: linear-gradient(135deg, rgba(139,92,246,0.9), rgba(34,211,238,0.8));
+      font-size: 22px;
+    }
+
+    .feature h3 {
+      margin-bottom: 10px;
+      font-size: 20px;
+    }
+
+    .feature p {
+      color: var(--muted);
+      line-height: 1.7;
+      font-size: 15px;
+    }
+
+    footer {
+      margin-top: 70px;
+      padding: 28px;
+      text-align: center;
+      color: var(--muted);
+      border-top: 1px solid var(--line);
+    }
+
+    @media (max-width: 880px) {
+      nav {
+        align-items: flex-start;
+        flex-direction: column;
+        margin-bottom: 44px;
+      }
+
+      .nav-links {
+        flex-wrap: wrap;
+      }
+
+      .hero {
+        grid-template-columns: 1fr;
+      }
+
+      .showcase {
+        min-height: 460px;
+      }
+
+      .features {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    @media (max-width: 560px) {
+      .page {
+        width: min(100% - 24px, 1160px);
+      }
+
+      .stats {
+        grid-template-columns: 1fr;
+      }
+
+      .planet {
+        width: 160px;
+        height: 160px;
+      }
+
+      .actions {
+        flex-direction: column;
+      }
+
+      .btn {
+        width: 100%;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="orb one"></div>
+  <div class="orb two"></div>
+
+  <main class="page">
+    <nav>
+      <div class="logo">
+        <div class="logo-mark">✦</div>
+        <span>STELLAR VISION</span>
+      </div>
+      <ul class="nav-links">
+        <li><a href="#features">亮点</a></li>
+        <li><a href="#showcase">展示</a></li>
+        <li><a href="#contact">联系</a></li>
+      </ul>
+    </nav>
+
+    <section class="hero">
+      <div>
+        <div class="badge"><span></span>全新视觉体验 · 精美单页 HTML</div>
+        <h1>把创意做成一场<span class="gradient-text">闪耀星河</span></h1>
+        <p class="subtitle">
+          这是一份现代、精致、响应式的 HTML 展示页，融合玻璃拟态、渐变光效、动态星球与优雅排版，适合作为产品首页、个人作品集或项目演示入口。
+        </p>
+        <div class="actions">
+          <a class="btn primary" href="#features">查看设计亮点</a>
+          <a class="btn ghost" href="#showcase">欣赏视觉效果</a>
+        </div>
+      </div>
+
+      <section class="showcase" id="showcase" aria-label="视觉展示卡片">
+        <div class="panel">
+          <div class="window-bar">
+            <div class="dots"><i></i><i></i><i></i></div>
+            <span>creative-preview.html</span>
+          </div>
+          <div class="visual-card">
+            <div class="planet"></div>
+          </div>
+          <div class="stats">
+            <div class="stat"><strong>98%</strong><small>视觉完成度</small></div>
+            <div class="stat"><strong>3D</strong><small>层次光影感</small></div>
+            <div class="stat"><strong>100%</strong><small>响应式布局</small></div>
+          </div>
+        </div>
+      </section>
+    </section>
+
+    <section class="features" id="features">
+      <article class="feature">
+        <div class="icon">✨</div>
+        <h3>高级渐变光效</h3>
+        <p>使用多层径向渐变和柔和阴影，营造细腻、梦幻且具有纵深感的视觉氛围。</p>
+      </article>
+
+      <article class="feature">
+        <div class="icon">🧊</div>
+        <h3>玻璃拟态卡片</h3>
+        <p>半透明背景、边框高光和背景模糊结合，让页面拥有现代产品级设计质感。</p>
+      </article>
+
+      <article class="feature">
+        <div class="icon">🚀</div>
+        <h3>开箱即用</h3>
+        <p>纯 HTML + CSS 编写，无需依赖框架，双击即可预览，也方便继续二次开发。</p>
+      </article>
+    </section>
+
+    <footer id="contact">
+      © 2026 Stellar Vision. 用一页 HTML，点亮你的创意展示。
+    </footer>
+  </main>
+</body>
+</html>

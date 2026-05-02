@@ -1,0 +1,31 @@
+{
+  "id": "chatcmpl-2518a0a61add4979a605171822632cd9",
+  "object": "chat.completion",
+  "created": 1777652568,
+  "model": "gpt-test",
+  "choices": [
+    {
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": null,
+        "tool_calls": [
+          {
+            "id": "call_835435e154934cf7aa3485d8b316cfe1",
+            "type": "function",
+            "function": {
+              "name": "attempt_completion",
+              "arguments": "{\"result\": \"done\", \"task_progress\": \"- [x] Responded to the user's request\"}"
+            }
+          }
+        ]
+      },
+      "finish_reason": "tool_calls"
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 0,
+    "completion_tokens": 0,
+    "total_tokens": 0
+  }
+}

@@ -1,0 +1,7 @@
+{
+  "answer_chars": 308,
+  "tool_calls": 1,
+  "fallback_tool_call": false,
+  "finish_reason": "tool_calls",
+  "error": null
+}

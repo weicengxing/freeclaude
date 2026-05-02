@@ -1,0 +1,42 @@
+{
+  "question": "你好",
+  "interactive_loop": true,
+  "selection_strategy": "round_robin",
+  "active_profile": "account_1",
+  "start_new_conversation": true,
+  "new_conversation_parent_id": "client-created-root",
+  "conversation_id": "",
+  "parent_message_id": "",
+  "model": "gpt-5-5-thinking",
+  "auto_refresh_ws_url": true,
+  "ws_refresh_interval_sec": 120,
+  "ws_refresh_stagger_sec": 15,
+  "ws_send_auth_headers": false,
+  "print_raw_topic_messages": false,
+  "print_streaming_text": false,
+  "ws_subscribe_with_offset": false,
+  "profiles": [
+    {
+      "name": "account_1",
+      "bearer_token": "PASTE_BEARER_TOKEN_HERE",
+      "account_id": "PASTE_ACCOUNT_ID_HERE",
+      "conduit_token": "hweqf",
+      "sentinel_token": "yyy",
+      "cookie": "PASTE_COOKIE_HEADER_HERE",
+      "oai_device_id": "PASTE_OAI_DEVICE_ID_HERE",
+      "oai_session_id": "PASTE_OAI_SESSION_ID_HERE",
+      "ws_url": ""
+    },
+    {
+      "name": "account_2",
+      "bearer_token": "PASTE_BEARER_TOKEN_HERE",
+      "account_id": "PASTE_ACCOUNT_ID_HERE",
+      "conduit_token": "PASTE_X_CONDUIT_TOKEN_HERE",
+      "sentinel_token": "yyy",
+      "cookie": "PASTE_COOKIE_HEADER_HERE",
+      "oai_device_id": "PASTE_OAI_DEVICE_ID_HERE",
+      "oai_session_id": "PASTE_OAI_SESSION_ID_HERE",
+      "ws_url": ""
+    }
+  ]
+}

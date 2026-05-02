@@ -1,0 +1,1 @@
+"""Isolated workspace agent prototype."""

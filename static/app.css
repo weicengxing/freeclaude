@@ -25,12 +25,14 @@
 }
 
 html {
+    height: 100%;
     min-height: 100%;
     background: linear-gradient(135deg, #f8f2e8 0%, #efe5d4 55%, #e8dcc8 100%);
 }
 
 body {
     margin: 0;
+    height: 100vh;
     min-height: 100vh;
     font-family: "Segoe UI Variable", "Microsoft YaHei UI", "PingFang SC", "Noto Sans SC", sans-serif;
     color: var(--text);
@@ -39,8 +41,7 @@ body {
         radial-gradient(circle at 100% 12%, rgba(180, 106, 45, 0.18), transparent 22%),
         radial-gradient(circle at 50% 100%, rgba(90, 61, 34, 0.08), transparent 30%),
         linear-gradient(135deg, #f8f2e8 0%, #efe5d4 55%, #e8dcc8 100%);
-    overflow-x: hidden;
-    overflow-y: auto;
+    overflow: hidden;
 }
 
 body::before,
@@ -78,12 +79,14 @@ body::after {
     position: relative;
     z-index: 1;
     display: grid;
-    grid-template-columns: 360px minmax(0, 1fr);
-    gap: 24px;
+    grid-template-columns: 300px minmax(0, 1fr);
+    gap: 14px;
     min-height: 100vh;
-    height: auto;
-    padding: 24px;
-    overflow: visible;
+    height: 100vh;
+    max-height: 100vh;
+    padding: 14px;
+    box-sizing: border-box;
+    overflow: hidden;
 }
 
 .sidebar,
@@ -99,10 +102,11 @@ body::after {
 .sidebar {
     display: flex;
     flex-direction: column;
-    gap: 18px;
+    gap: 12px;
     overflow: hidden;
     min-height: 0;
-    padding: 28px 24px 22px;
+    height: 100%;
+    padding: 18px 14px 14px;
     border-radius: 32px;
     color: var(--sidebar-text);
     background:
@@ -115,9 +119,10 @@ body::after {
     min-height: 0;
     overflow: hidden;
     display: grid;
-    grid-template-rows: auto minmax(0, 1fr) auto;
-    gap: 12px;
-    padding: 16px;
+    height: 100%;
+    grid-template-rows: minmax(0, 1fr);
+    gap: 0;
+    padding: 12px;
     border-radius: 32px;
     background: linear-gradient(180deg, rgba(255, 255, 255, 0.62) 0%, rgba(255, 252, 246, 0.94) 100%);
 }
@@ -345,13 +350,16 @@ select {
 .main-view {
     display: grid;
     gap: 16px;
+    height: 100%;
     min-height: 0;
     min-width: 0;
-    align-content: start;
+    align-content: stretch;
+    overflow: hidden;
 }
 
 .chat-view {
-    grid-template-rows: auto minmax(360px, 1fr) auto;
+    grid-template-rows: auto minmax(0, 1fr) auto;
+    overflow: hidden;
 }
 
 .db-view {
@@ -440,6 +448,10 @@ select {
     min-height: 0;
 }
 
+.session-list {
+    flex: 1 1 auto;
+}
+
 .session-list,
 .admin-list {
     display: flex;
@@ -448,14 +460,17 @@ select {
 }
 
 .session-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 44px;
     align-items: stretch;
+    gap: 8px;
 }
 
 .session-row > .danger-btn {
-    flex: 0 0 auto;
-    min-width: 54px;
-    padding-inline: 14px;
-    border-radius: 18px;
+    width: 44px;
+    min-width: 44px;
+    padding: 0;
+    border-radius: 16px;
 }
 
 .session-card,
@@ -500,8 +515,8 @@ select {
 
 .messages {
     position: relative;
-    padding: 16px;
-    min-height: 340px;
+    padding: 22px 28px;
+    min-height: 0;
     overflow: auto;
 }
 
@@ -532,13 +547,18 @@ select {
 }
 
 .message {
-    max-width: min(920px, 86%);
+    position: relative;
+    max-width: min(820px, 74%);
     margin-bottom: 12px;
     padding: 14px 16px;
     border-radius: 20px;
     line-height: 1.62;
     box-shadow: 0 18px 36px rgba(57, 40, 21, 0.08);
     animation: fadeUp 0.26s ease;
+}
+
+.message.menu-open {
+    z-index: 8;
 }
 
 .message.user {
@@ -560,17 +580,142 @@ select {
     opacity: 0.66;
 }
 
-.message.user .message-btn {
+.message-actions {
+    margin-left: auto;
+    justify-content: flex-end;
+    flex-wrap: nowrap;
+}
+
+.message-actions > .message-btn {
+    display: none;
+}
+
+.message-menu {
+    position: relative;
+    z-index: 1;
+}
+
+.message-icon-btn {
+    width: 38px;
+    height: 38px;
+    display: grid;
+    place-items: center;
+    border-radius: 999px;
+    border: 1px solid rgba(120, 90, 50, 0.14);
+    background: rgba(255, 255, 255, 0.88);
+    color: var(--text);
+    box-shadow: 0 10px 22px rgba(48, 34, 19, 0.06);
+    font-size: 22px;
+    font-weight: 700;
+    line-height: 1;
+    cursor: pointer;
+    transition: box-shadow 0.18s ease, background 0.18s ease, border-color 0.18s ease, color 0.18s ease;
+}
+
+.message-icon-btn:hover {
+    background: #ffffff;
+    border-color: rgba(180, 106, 45, 0.28);
+}
+
+.message-menu-panel {
+    position: absolute;
+    top: calc(100% + 8px);
+    right: 0;
+    z-index: 4;
+    min-width: 156px;
+    display: grid;
+    gap: 8px;
+    padding: 12px;
+    border-radius: 20px;
+    border: 1px solid rgba(120, 90, 50, 0.16);
+    background: rgba(255, 252, 247, 0.985);
+    box-shadow: 0 20px 40px rgba(57, 40, 21, 0.18);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+}
+
+.message-menu-panel .message-btn {
+    width: 100%;
+    min-height: 44px;
+    justify-content: center;
+    color: #1f1a17;
+    background: #ffffff;
+    border-color: rgba(120, 90, 50, 0.18);
+    box-shadow: 0 8px 18px rgba(48, 34, 19, 0.08);
+    font-weight: 700;
+}
+
+.message-menu-panel .message-btn:hover:not(:disabled) {
+    background: #fffdf9;
+    border-color: rgba(180, 106, 45, 0.34);
+}
+
+.message-menu-panel .message-btn.danger {
+    color: #fffaf7;
+    background: linear-gradient(135deg, #cf4f24 0%, #b83a12 100%);
+    border-color: rgba(164, 44, 10, 0.42);
+    box-shadow: 0 10px 22px rgba(194, 65, 12, 0.22);
+}
+
+.message-menu-panel .message-btn.danger:hover:not(:disabled) {
+    background: linear-gradient(135deg, #db5c31 0%, #c84419 100%);
+}
+
+.message-inline-editor {
+    display: grid;
+    gap: 10px;
+    margin-top: 8px;
+}
+
+.message-inline-editor textarea {
+    width: 100%;
+    min-height: 104px;
+    padding: 12px 14px;
+    border-radius: 16px;
+    border: 1px solid rgba(120, 90, 50, 0.14);
+    background: rgba(255, 255, 255, 0.9);
+    color: var(--text);
+    line-height: 1.55;
+    resize: vertical;
+}
+
+.message-inline-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.message.user .message-icon-btn {
     color: #fffaf2;
     background: rgba(255, 255, 255, 0.12);
     border-color: rgba(255, 255, 255, 0.2);
     box-shadow: none;
 }
 
-.message.user .message-btn.danger {
-    color: #fff0ea;
-    background: rgba(125, 33, 10, 0.18);
-    border-color: rgba(255, 240, 234, 0.18);
+.message.user .message-icon-btn:hover {
+    background: rgba(255, 255, 255, 0.2);
+    border-color: rgba(255, 255, 255, 0.3);
+}
+
+.message.user .message-inline-editor textarea {
+    background: rgba(255, 250, 244, 0.96);
+    color: #5d3416;
+    border-color: rgba(255, 255, 255, 0.38);
+}
+
+.message.user .message-menu-panel .message-btn {
+    color: #1f1a17;
+    background: #ffffff;
+    border-color: rgba(120, 90, 50, 0.18);
+    box-shadow: 0 8px 18px rgba(48, 34, 19, 0.08);
+}
+
+.message.user .message-menu-panel .message-btn.danger {
+    color: #fffaf7;
+    background: linear-gradient(135deg, #cf4f24 0%, #b83a12 100%);
+    border-color: rgba(164, 44, 10, 0.42);
+    box-shadow: 0 10px 22px rgba(194, 65, 12, 0.22);
 }
 
 .message-image-grid,
@@ -594,8 +739,9 @@ select {
 
 .composer {
     display: grid;
+    flex: 0 0 auto;
     gap: 10px;
-    padding: 12px;
+    padding: 14px 18px;
 }
 
 .composer-drop-hint {
@@ -712,9 +858,10 @@ select {
     display: grid;
     grid-template-columns: minmax(220px, 260px) minmax(0, 1fr);
     gap: 16px;
+    height: 100%;
     min-height: 0;
     min-width: 0;
-    align-items: start;
+    align-items: stretch;
 }
 
 .db-side-panel,
@@ -727,13 +874,17 @@ select {
     display: grid;
     gap: 14px;
     align-content: start;
+    height: 100%;
+    overflow: auto;
     padding: 18px;
 }
 
 .db-main-panel {
     display: grid;
     gap: 14px;
+    height: 100%;
     grid-template-rows: auto minmax(0, 1fr);
+    min-height: 0;
     min-width: 0;
 }
 
@@ -812,10 +963,16 @@ select {
 }
 
 .admin-db-rows {
-    min-height: 420px;
+    min-height: 0;
+    height: 100%;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
 }
 
 .admin-db-table-wrap {
+    flex: 1 1 auto;
+    height: 100%;
     max-width: 100%;
     overflow-x: auto;
     overflow-y: auto;
@@ -1239,9 +1396,17 @@ select {
 }
 
 @media (max-width: 1120px) {
+    body {
+        height: auto;
+        overflow-y: auto;
+        overflow-x: hidden;
+    }
+
     .shell {
         grid-template-columns: 1fr;
         gap: 18px;
+        height: auto;
+        max-height: none;
         padding: 18px;
         overflow: visible;
     }
