@@ -1,0 +1,64 @@
+{
+  "id": "resp_90df62da50624cf6af40c516d59150fc",
+  "object": "response",
+  "created_at": 1777699753,
+  "status": "completed",
+  "error": null,
+  "incomplete_details": null,
+  "instructions": null,
+  "max_output_tokens": null,
+  "model": "gpt-5-5-thinking",
+  "output": [
+    {
+      "id": "fc_2243481471764bff9ddac1124a4b5136",
+      "type": "function_call",
+      "status": "completed",
+      "call_id": "call_5c45c123f74c4779894779470c5caf3b",
+      "name": "shell",
+      "arguments": "{\"command\": [\"powershell.exe\", \"-Command\", \"Write-Output 1\"]}"
+    },
+    {
+      "id": "fc_18c912e16efc4248bfc887dd546221b6",
+      "type": "function_call",
+      "status": "completed",
+      "call_id": "call_83ee811ff4eb424ba215147468657b67",
+      "name": "shell",
+      "arguments": "{\"command\": [\"powershell.exe\", \"-Command\", \"Write-Output 2\"]}"
+    }
+  ],
+  "parallel_tool_calls": true,
+  "previous_response_id": null,
+  "reasoning": null,
+  "store": true,
+  "temperature": null,
+  "text": {
+    "format": {
+      "type": "text"
+    }
+  },
+  "tool_choice": "auto",
+  "tools": [
+    {
+      "type": "function",
+      "name": "shell",
+      "parameters": {
+        "type": "object"
+      }
+    }
+  ],
+  "top_p": null,
+  "truncation": "disabled",
+  "usage": {
+    "input_tokens": 0,
+    "input_tokens_details": {
+      "cached_tokens": 0
+    },
+    "output_tokens": 0,
+    "output_tokens_details": {
+      "reasoning_tokens": 0
+    },
+    "total_tokens": 0
+  },
+  "user": null,
+  "metadata": {}
+}

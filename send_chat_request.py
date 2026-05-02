@@ -26,10 +26,10 @@ if not PROFILES:
     raise RuntimeError("chat_profiles.json must contain at least one profile")
 
 _profile_cursor = 0
+_profile_cursor_lock = threading.Lock()
 _ws_url_cache: dict[str, dict[str, Any]] = {}
 _ws_url_cache_lock = threading.Lock()
 _ws_refresh_stop = threading.Event()
-_turn_lock = threading.Lock()
 
 
 def select_profile() -> dict[str, Any]:
@@ -37,9 +37,10 @@ def select_profile() -> dict[str, Any]:
 
     strategy = CONFIG.get("selection_strategy", "active")
     if strategy == "round_robin":
-        profile = PROFILES[_profile_cursor % len(PROFILES)]
-        _profile_cursor += 1
-        return profile
+        with _profile_cursor_lock:
+            profile = PROFILES[_profile_cursor % len(PROFILES)]
+            _profile_cursor += 1
+            return profile
 
     active_name = CONFIG.get("active_profile")
     for profile in PROFILES:
@@ -47,34 +48,6 @@ def select_profile() -> dict[str, Any]:
             return profile
 
     return PROFILES[0]
-
-
-ACTIVE_PROFILE = PROFILES[0]
-
-BEARER_TOKEN = ACTIVE_PROFILE.get("bearer_token", "")
-ACCOUNT_ID = ACTIVE_PROFILE.get("account_id", "")
-CONDUIT_TOKEN = ACTIVE_PROFILE.get("conduit_token", "")
-SENTINEL_TOKEN = ACTIVE_PROFILE.get("sentinel_token", "")
-COOKIE = ACTIVE_PROFILE.get("cookie", "")
-OAI_DEVICE_ID = ACTIVE_PROFILE.get("oai_device_id", "")
-OAI_SESSION_ID = ACTIVE_PROFILE.get("oai_session_id", "")
-WS_URL = ACTIVE_PROFILE.get("ws_url", "")
-
-
-def activate_profile(profile: dict[str, Any]) -> None:
-    global ACTIVE_PROFILE
-    global BEARER_TOKEN, ACCOUNT_ID, CONDUIT_TOKEN, SENTINEL_TOKEN
-    global COOKIE, OAI_DEVICE_ID, OAI_SESSION_ID, WS_URL
-
-    ACTIVE_PROFILE = profile
-    BEARER_TOKEN = profile.get("bearer_token", "")
-    ACCOUNT_ID = profile.get("account_id", "")
-    CONDUIT_TOKEN = profile.get("conduit_token", "")
-    SENTINEL_TOKEN = profile.get("sentinel_token", "")
-    COOKIE = profile.get("cookie", "")
-    OAI_DEVICE_ID = profile.get("oai_device_id", "")
-    OAI_SESSION_ID = profile.get("oai_session_id", "")
-    WS_URL = profile.get("ws_url", "")
 
 
 def profile_name(profile: dict[str, Any]) -> str:
@@ -86,6 +59,17 @@ PARENT_MESSAGE_ID = CONFIG.get("parent_message_id") or None
 START_NEW_CONVERSATION = bool(CONFIG.get("start_new_conversation", True))
 NEW_CONVERSATION_PARENT_ID = CONFIG.get("new_conversation_parent_id", "client-created-root")
 MODEL = CONFIG.get("model", "gpt-5-5-thinking")
+DEFAULT_MODEL_ALIASES = {
+    "codex-mini-latest": "gpt-5-4-mini",
+    "gpt-5.2": "gpt-5-2",
+    "gpt-5.3": "gpt-5-3",
+    "gpt-5.4": "gpt-5-4",
+    "gpt-5.4-mini": "gpt-5-4-mini",
+    "gpt-5.5": "gpt-5-5-thinking",
+    "gpt-5.5-thinking": "gpt-5-5-thinking",
+    "gpt-5.5-pro": "gpt-5-5-pro",
+}
+MODEL_ALIASES = {**DEFAULT_MODEL_ALIASES, **CONFIG.get("model_aliases", {})}
 AUTO_REFRESH_WS_URL = bool(CONFIG.get("auto_refresh_ws_url", True))
 WS_REFRESH_INTERVAL_SEC = int(CONFIG.get("ws_refresh_interval_sec", 120))
 WS_REFRESH_STAGGER_SEC = int(CONFIG.get("ws_refresh_stagger_sec", 15))
@@ -103,18 +87,12 @@ def usable(value: str) -> bool:
 
 
 def validate_config() -> None:
-    required = {
-        "BEARER_TOKEN": BEARER_TOKEN,
-        "ACCOUNT_ID": ACCOUNT_ID,
-        "CONDUIT_TOKEN": CONDUIT_TOKEN,
-        "COOKIE": COOKIE,
-        "OAI_DEVICE_ID": OAI_DEVICE_ID,
-        "OAI_SESSION_ID": OAI_SESSION_ID,
-    }
-    missing = [name for name, value in required.items() if not usable(value)]
-    if missing:
-        joined = ", ".join(missing)
-        raise RuntimeError(f"Missing required config values: {joined}")
+    if CONFIG.get("selection_strategy", "active") == "round_robin":
+        for profile in PROFILES:
+            validate_profile(profile)
+        return
+
+    validate_profile(select_profile())
 
 
 def validate_profile(profile: dict[str, Any]) -> None:
@@ -139,7 +117,32 @@ def clean_bearer_token(token: str) -> str:
     return token
 
 
-def build_body(question: str, parent_message_id: str, conversation_id: str | None) -> bytes:
+def resolve_model(requested_model: str | None = None) -> str:
+    if not requested_model:
+        return MODEL
+
+    requested_model = requested_model.strip()
+    if not requested_model:
+        return MODEL
+
+    if requested_model in MODEL_ALIASES:
+        return MODEL_ALIASES[requested_model]
+
+    normalized = requested_model.replace(".", "-")
+    if normalized in MODEL_ALIASES:
+        return MODEL_ALIASES[normalized]
+    if normalized.startswith("gpt-"):
+        return normalized
+    return MODEL
+
+
+def build_body(
+    question: str,
+    parent_message_id: str,
+    conversation_id: str | None,
+    model: str | None = None,
+) -> bytes:
+    upstream_model = resolve_model(model)
     payload = {
         "action": "next",
         "messages": [
@@ -163,7 +166,7 @@ def build_body(question: str, parent_message_id: str, conversation_id: str | Non
             }
         ],
         "parent_message_id": parent_message_id,
-        "model": MODEL,
+        "model": upstream_model,
         "timezone_offset_min": -480,
         "timezone": "Asia/Shanghai",
         "conversation_mode": {"kind": "primary_assistant"},
@@ -183,28 +186,36 @@ def build_body(question: str, parent_message_id: str, conversation_id: str | Non
         },
         "paragen_cot_summary_display_override": "allow",
         "force_parallel_switch": "auto",
-        "thinking_effort": "extended",
     }
+    thinking_effort = CONFIG.get("thinking_effort")
+    if thinking_effort:
+        payload["thinking_effort"] = thinking_effort
+    elif "thinking" in upstream_model or upstream_model.endswith("-pro"):
+        payload["thinking_effort"] = "extended"
     if conversation_id:
         payload["conversation_id"] = conversation_id
 
     return json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
 
 
-def build_headers(conversation_id: str | None = CONVERSATION_ID) -> dict[str, str]:
+def build_headers(
+    conversation_id: str | None = CONVERSATION_ID,
+    profile: dict[str, Any] | None = None,
+) -> dict[str, str]:
+    profile = profile or PROFILES[0]
     referer = "https://chat.sharedchat.cc/"
     if conversation_id:
         referer = f"https://chat.sharedchat.cc/c/{conversation_id}"
 
     headers = {
         "accept": "text/event-stream",
-        "authorization": f"Bearer {clean_bearer_token(BEARER_TOKEN)}",
-        "chatgpt-account-id": ACCOUNT_ID,
+        "authorization": f"Bearer {clean_bearer_token(profile.get('bearer_token', ''))}",
+        "chatgpt-account-id": profile.get("account_id", ""),
         "content-type": "application/json",
         "oai-language": "zh-CN",
         "origin": "https://chat.sharedchat.cc",
         "referer": referer,
-        "x-conduit-token": CONDUIT_TOKEN,
+        "x-conduit-token": profile.get("conduit_token", ""),
         "x-oai-turn-trace-id": str(uuid.uuid4()),
         "x-openai-target-path": "/backend-api/f/conversation",
         "x-openai-target-route": "/backend-api/f/conversation",
@@ -215,14 +226,14 @@ def build_headers(conversation_id: str | None = CONVERSATION_ID) -> dict[str, st
         ),
     }
 
-    if usable(SENTINEL_TOKEN):
-        headers["openai-sentinel-chat-requirements-token"] = SENTINEL_TOKEN
-    if usable(COOKIE):
-        headers["cookie"] = COOKIE
-    if usable(OAI_DEVICE_ID):
-        headers["oai-device-id"] = OAI_DEVICE_ID
-    if usable(OAI_SESSION_ID):
-        headers["oai-session-id"] = OAI_SESSION_ID
+    if usable(profile.get("sentinel_token", "")):
+        headers["openai-sentinel-chat-requirements-token"] = profile["sentinel_token"]
+    if usable(profile.get("cookie", "")):
+        headers["cookie"] = profile["cookie"]
+    if usable(profile.get("oai_device_id", "")):
+        headers["oai-device-id"] = profile["oai_device_id"]
+    if usable(profile.get("oai_session_id", "")):
+        headers["oai-session-id"] = profile["oai_session_id"]
 
     return headers
 
@@ -231,7 +242,7 @@ def build_ws_url_headers(
     conversation_id: str | None = CONVERSATION_ID,
     profile: dict[str, Any] | None = None,
 ) -> dict[str, str]:
-    profile = profile or ACTIVE_PROFILE
+    profile = profile or PROFILES[0]
     referer = "https://chat.sharedchat.cc/"
     if conversation_id:
         referer = f"https://chat.sharedchat.cc/c/{conversation_id}"
@@ -351,12 +362,19 @@ def parse_sse_data_line(line: str) -> Any | None:
         return data
 
 
-def send_question(question: str, parent_message_id: str, conversation_id: str | None) -> dict[str, Any]:
+def send_question(
+    question: str,
+    parent_message_id: str,
+    conversation_id: str | None,
+    model: str | None = None,
+    profile: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    profile = profile or PROFILES[0]
     url = "https://chat.sharedchat.cc/backend-api/f/conversation"
     req = request.Request(
         url,
-        data=build_body(question, parent_message_id, conversation_id),
-        headers=build_headers(conversation_id),
+        data=build_body(question, parent_message_id, conversation_id, model),
+        headers=build_headers(conversation_id, profile),
         method="POST",
     )
 
@@ -525,10 +543,10 @@ class SimpleWebSocket:
             "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
             "User-Agent": self.headers.get("user-agent", ""),
         }
-        if WS_SEND_AUTH_HEADERS and usable(COOKIE):
-            handshake_headers["Cookie"] = COOKIE
-        if WS_SEND_AUTH_HEADERS and usable(BEARER_TOKEN):
-            handshake_headers["Authorization"] = f"Bearer {clean_bearer_token(BEARER_TOKEN)}"
+        if WS_SEND_AUTH_HEADERS and usable(self.headers.get("cookie", "")):
+            handshake_headers["Cookie"] = self.headers["cookie"]
+        if WS_SEND_AUTH_HEADERS and usable(self.headers.get("authorization", "")):
+            handshake_headers["Authorization"] = self.headers["authorization"]
 
         request_lines = [f"GET {path} HTTP/1.1"]
         request_lines.extend(f"{name}: {value}" for name, value in handshake_headers.items() if value)
@@ -662,26 +680,28 @@ class SimpleWebSocket:
         self.sock.sendall(frame)
 
 
-def subscribe_and_print(topic_id: str) -> dict[str, Any] | None:
-    ws_url = get_runtime_ws_url()
+def subscribe_and_print(topic_id: str, profile: dict[str, Any] | None = None) -> dict[str, Any] | None:
+    profile = profile or PROFILES[0]
+    ws_url = get_runtime_ws_url(profile)
     if not ws_url:
         print()
         print("No WS_URL set and AUTO_REFRESH_WS_URL is disabled.")
         print(f"Target topic_id: {topic_id}")
         return None
 
-    headers = build_headers()
+    headers = build_headers(profile=profile)
     with SimpleWebSocket(ws_url, headers) as ws:
         result = subscribe_topic_and_collect(ws, topic_id, include_connect=True)
         return result
 
 
-def get_runtime_ws_url() -> str:
+def get_runtime_ws_url(profile: dict[str, Any] | None = None) -> str:
+    profile = profile or PROFILES[0]
     if AUTO_REFRESH_WS_URL:
-        ws_url = get_cached_ws_url(ACTIVE_PROFILE, None if START_NEW_CONVERSATION else CONVERSATION_ID)
+        ws_url = get_cached_ws_url(profile, None if START_NEW_CONVERSATION else CONVERSATION_ID)
         return ws_url
 
-    return WS_URL
+    return profile.get("ws_url", "")
 
 
 def subscribe_topic_and_collect(ws: SimpleWebSocket, topic_id: str, include_connect: bool) -> dict[str, Any]:
@@ -1041,59 +1061,63 @@ def is_ws_done_message(message: Any) -> bool:
     return False
 
 
-def ask_ai(question: str, profile: dict[str, Any] | None = None) -> dict[str, Any]:
+def ask_ai(
+    question: str,
+    profile: dict[str, Any] | None = None,
+    model: str | None = None,
+) -> dict[str, Any]:
     profile = profile or select_profile()
 
-    with _turn_lock:
-        activate_profile(profile)
-        validate_profile(profile)
-        print(f"Using profile: {profile_name(profile)}")
+    validate_profile(profile)
+    print(f"Using profile: {profile_name(profile)}")
 
-        conversation_id = None if START_NEW_CONVERSATION else CONVERSATION_ID
-        parent_message_id = NEW_CONVERSATION_PARENT_ID if START_NEW_CONVERSATION else PARENT_MESSAGE_ID
-        handoff = send_question(question, parent_message_id, conversation_id)
+    conversation_id = None if START_NEW_CONVERSATION else CONVERSATION_ID
+    parent_message_id = NEW_CONVERSATION_PARENT_ID if START_NEW_CONVERSATION else PARENT_MESSAGE_ID
+    handoff = send_question(question, parent_message_id, conversation_id, model, profile)
 
-        topic_id = handoff.get("topic_id")
-        if not topic_id:
-            raise RuntimeError(f"No topic_id found in stream_handoff: {json.dumps(handoff, ensure_ascii=False)}")
+    topic_id = handoff.get("topic_id")
+    if not topic_id:
+        raise RuntimeError(f"No topic_id found in stream_handoff: {json.dumps(handoff, ensure_ascii=False)}")
 
-        result = subscribe_and_print(topic_id)
-        if result is None:
-            raise RuntimeError("No WebSocket URL available")
+    result = subscribe_and_print(topic_id, profile)
+    if result is None:
+        raise RuntimeError("No WebSocket URL available")
 
-        result["profile"] = profile_name(profile)
-        result["conversation_id"] = handoff.get("conversation_id")
-        result["topic_id"] = topic_id
-        return result
+    result["profile"] = profile_name(profile)
+    result["conversation_id"] = handoff.get("conversation_id")
+    result["topic_id"] = topic_id
+    return result
 
 
-def stream_ai(question: str, profile: dict[str, Any] | None = None):
+def stream_ai(
+    question: str,
+    profile: dict[str, Any] | None = None,
+    model: str | None = None,
+):
     profile = profile or select_profile()
 
-    with _turn_lock:
-        activate_profile(profile)
-        validate_profile(profile)
-        print(f"Using profile: {profile_name(profile)}")
+    validate_profile(profile)
+    print(f"Using profile: {profile_name(profile)}")
 
-        conversation_id = None if START_NEW_CONVERSATION else CONVERSATION_ID
-        parent_message_id = NEW_CONVERSATION_PARENT_ID if START_NEW_CONVERSATION else PARENT_MESSAGE_ID
-        handoff = send_question(question, parent_message_id, conversation_id)
+    conversation_id = None if START_NEW_CONVERSATION else CONVERSATION_ID
+    parent_message_id = NEW_CONVERSATION_PARENT_ID if START_NEW_CONVERSATION else PARENT_MESSAGE_ID
+    handoff = send_question(question, parent_message_id, conversation_id, model, profile)
 
-        topic_id = handoff.get("topic_id")
-        if not topic_id:
-            raise RuntimeError(f"No topic_id found in stream_handoff: {json.dumps(handoff, ensure_ascii=False)}")
+    topic_id = handoff.get("topic_id")
+    if not topic_id:
+        raise RuntimeError(f"No topic_id found in stream_handoff: {json.dumps(handoff, ensure_ascii=False)}")
 
-        ws_url = get_runtime_ws_url()
-        if not ws_url:
-            raise RuntimeError("No WebSocket URL available")
+    ws_url = get_runtime_ws_url(profile)
+    if not ws_url:
+        raise RuntimeError("No WebSocket URL available")
 
-        headers = build_headers()
-        with SimpleWebSocket(ws_url, headers) as ws:
-            for item in subscribe_topic_stream(ws, topic_id, include_connect=True):
-                item["profile"] = profile_name(profile)
-                item["conversation_id"] = handoff.get("conversation_id")
-                item["topic_id"] = topic_id
-                yield item
+    headers = build_headers(profile=profile)
+    with SimpleWebSocket(ws_url, headers) as ws:
+        for item in subscribe_topic_stream(ws, topic_id, include_connect=True):
+            item["profile"] = profile_name(profile)
+            item["conversation_id"] = handoff.get("conversation_id")
+            item["topic_id"] = topic_id
+            yield item
 
 
 def run_turn(question: str, profile: dict[str, Any]) -> None:

@@ -1,0 +1,667 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>星河灵感馆 · 精美 HTML 页面</title>
+  <style>
+    :root {
+      --bg: #070a18;
+      --bg-soft: #101528;
+      --text: #f8fbff;
+      --muted: #aeb8d8;
+      --line: rgba(255, 255, 255, 0.14);
+      --glass: rgba(255, 255, 255, 0.08);
+      --primary: #8a63ff;
+      --cyan: #22d3ee;
+      --gold: #ffd166;
+      --pink: #ff6fb1;
+      --shadow: 0 28px 90px rgba(0, 0, 0, 0.42);
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    html {
+      scroll-behavior: smooth;
+    }
+
+    body {
+      min-height: 100vh;
+      font-family: Inter, "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+      color: var(--text);
+      background:
+        radial-gradient(circle at 12% 10%, rgba(138, 99, 255, 0.5), transparent 32%),
+        radial-gradient(circle at 88% 16%, rgba(34, 211, 238, 0.34), transparent 30%),
+        radial-gradient(circle at 50% 90%, rgba(255, 111, 177, 0.18), transparent 36%),
+        linear-gradient(135deg, #070a18 0%, #101528 55%, #080b1d 100%);
+      overflow-x: hidden;
+    }
+
+    body::before {
+      content: "";
+      position: fixed;
+      inset: 0;
+      z-index: -2;
+      background-image:
+        linear-gradient(rgba(255, 255, 255, 0.045) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255, 255, 255, 0.045) 1px, transparent 1px);
+      background-size: 46px 46px;
+      mask-image: linear-gradient(to bottom, #000 0%, transparent 82%);
+    }
+
+    .aurora {
+      position: fixed;
+      inset: auto auto 8% -12%;
+      width: 520px;
+      height: 520px;
+      border-radius: 50%;
+      background: rgba(138, 99, 255, 0.26);
+      filter: blur(30px);
+      z-index: -1;
+      animation: drift 9s ease-in-out infinite;
+    }
+
+    .aurora.two {
+      inset: 18% -12% auto auto;
+      background: rgba(34, 211, 238, 0.2);
+      animation-delay: -3s;
+    }
+
+    @keyframes drift {
+      0%, 100% { transform: translate3d(0, 0, 0) scale(1); }
+      50% { transform: translate3d(28px, -24px, 0) scale(1.08); }
+    }
+
+    .container {
+      width: min(1180px, calc(100% - 40px));
+      margin: 0 auto;
+    }
+
+    header {
+      padding: 26px 0 0;
+    }
+
+    .nav {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 20px;
+      padding: 14px 16px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: rgba(7, 10, 24, 0.58);
+      backdrop-filter: blur(18px);
+      box-shadow: 0 18px 60px rgba(0, 0, 0, 0.22);
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      font-weight: 900;
+      letter-spacing: 0.04em;
+    }
+
+    .logo {
+      width: 38px;
+      height: 38px;
+      border-radius: 14px;
+      background: linear-gradient(135deg, var(--primary), var(--cyan));
+      box-shadow: 0 0 35px rgba(34, 211, 238, 0.45);
+    }
+
+    .links {
+      display: flex;
+      gap: 26px;
+      font-size: 14px;
+      color: var(--muted);
+    }
+
+    .links a {
+      color: inherit;
+      text-decoration: none;
+      transition: 0.2s ease;
+    }
+
+    .links a:hover {
+      color: var(--text);
+    }
+
+    .hero {
+      min-height: 78vh;
+      display: grid;
+      grid-template-columns: 1.05fr 0.95fr;
+      align-items: center;
+      gap: 58px;
+      padding: 86px 0 64px;
+    }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 14px;
+      margin-bottom: 22px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.07);
+      color: #e6ebff;
+      font-size: 14px;
+    }
+
+    .dot {
+      width: 9px;
+      height: 9px;
+      border-radius: 50%;
+      background: #3dffbb;
+      box-shadow: 0 0 0 0 rgba(61, 255, 187, 0.62);
+      animation: pulse 1.8s infinite;
+    }
+
+    @keyframes pulse {
+      70% { box-shadow: 0 0 0 10px rgba(61, 255, 187, 0); }
+      100% { box-shadow: 0 0 0 0 rgba(61, 255, 187, 0); }
+    }
+
+    h1 {
+      max-width: 760px;
+      font-size: clamp(44px, 7vw, 88px);
+      line-height: 0.96;
+      letter-spacing: -0.07em;
+      margin-bottom: 26px;
+    }
+
+    .gradient-text {
+      background: linear-gradient(90deg, #ffffff, #cfd7ff 38%, #75efff 72%, #ffd166);
+      -webkit-background-clip: text;
+      background-clip: text;
+      color: transparent;
+    }
+
+    .hero p {
+      max-width: 610px;
+      color: var(--muted);
+      font-size: 18px;
+      line-height: 1.85;
+      margin-bottom: 34px;
+    }
+
+    .actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 14px;
+      align-items: center;
+    }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 52px;
+      padding: 0 24px;
+      border-radius: 17px;
+      color: var(--text);
+      text-decoration: none;
+      font-weight: 800;
+      transition: transform 0.2s ease, box-shadow 0.2s ease;
+    }
+
+    .btn.primary {
+      background: linear-gradient(135deg, var(--primary), var(--cyan));
+      box-shadow: 0 18px 42px rgba(34, 211, 238, 0.26);
+    }
+
+    .btn.secondary {
+      border: 1px solid var(--line);
+      background: rgba(255, 255, 255, 0.07);
+    }
+
+    .btn:hover {
+      transform: translateY(-3px);
+    }
+
+    .visual {
+      position: relative;
+      min-height: 530px;
+    }
+
+    .panel {
+      position: absolute;
+      inset: 26px 0 auto auto;
+      width: min(500px, 100%);
+      padding: 24px;
+      border: 1px solid var(--line);
+      border-radius: 34px;
+      background: linear-gradient(180deg, rgba(255, 255, 255, 0.12), rgba(255, 255, 255, 0.055));
+      backdrop-filter: blur(22px);
+      box-shadow: var(--shadow);
+      overflow: hidden;
+    }
+
+    .panel::after {
+      content: "";
+      position: absolute;
+      inset: -2px;
+      background: linear-gradient(120deg, transparent, rgba(255,255,255,.14), transparent);
+      transform: translateX(-80%);
+      animation: shine 4.6s ease-in-out infinite;
+    }
+
+    @keyframes shine {
+      0%, 55% { transform: translateX(-90%); }
+      100% { transform: translateX(90%); }
+    }
+
+    .panel > * {
+      position: relative;
+      z-index: 1;
+    }
+
+    .window-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 22px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .lights {
+      display: flex;
+      gap: 8px;
+    }
+
+    .lights span {
+      width: 11px;
+      height: 11px;
+      border-radius: 50%;
+      background: var(--pink);
+    }
+
+    .lights span:nth-child(2) { background: var(--gold); }
+    .lights span:nth-child(3) { background: #3dffbb; }
+
+    .metric {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 18px;
+      align-items: center;
+      padding: 18px;
+      margin-bottom: 14px;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 22px;
+      background: rgba(255, 255, 255, 0.06);
+    }
+
+    .metric strong {
+      display: block;
+      margin-bottom: 6px;
+      font-size: 18px;
+    }
+
+    .metric span {
+      color: var(--muted);
+      font-size: 14px;
+      line-height: 1.6;
+    }
+
+    .number {
+      font-size: 30px;
+      font-weight: 900;
+      color: #91f4ff;
+    }
+
+    .floating-card {
+      position: absolute;
+      left: 0;
+      bottom: 44px;
+      width: 270px;
+      padding: 20px;
+      border: 1px solid var(--line);
+      border-radius: 28px;
+      background: rgba(255, 255, 255, 0.09);
+      backdrop-filter: blur(20px);
+      box-shadow: var(--shadow);
+      animation: cardFloat 6s ease-in-out infinite;
+    }
+
+    @keyframes cardFloat {
+      0%, 100% { transform: translateY(0); }
+      50% { transform: translateY(-14px); }
+    }
+
+    .ring {
+      width: 112px;
+      height: 112px;
+      margin: 4px auto 16px;
+      border-radius: 50%;
+      background: conic-gradient(var(--cyan) 0 76%, rgba(255,255,255,.12) 76% 100%);
+      display: grid;
+      place-items: center;
+    }
+
+    .ring::before {
+      content: "76%";
+      width: 78px;
+      height: 78px;
+      border-radius: 50%;
+      display: grid;
+      place-items: center;
+      background: #101528;
+      font-weight: 900;
+    }
+
+    .section {
+      padding: 72px 0;
+    }
+
+    .section-title {
+      max-width: 720px;
+      margin-bottom: 30px;
+    }
+
+    .section-title h2 {
+      font-size: clamp(30px, 4vw, 52px);
+      line-height: 1.05;
+      letter-spacing: -0.04em;
+      margin-bottom: 14px;
+    }
+
+    .section-title p {
+      color: var(--muted);
+      line-height: 1.8;
+      font-size: 17px;
+    }
+
+    .cards {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 18px;
+    }
+
+    .card {
+      padding: 28px;
+      min-height: 230px;
+      border: 1px solid var(--line);
+      border-radius: 30px;
+      background: rgba(255, 255, 255, 0.07);
+      box-shadow: 0 18px 60px rgba(0,0,0,.16);
+      transition: transform 0.2s ease, background 0.2s ease;
+    }
+
+    .card:hover {
+      transform: translateY(-8px);
+      background: rgba(255, 255, 255, 0.1);
+    }
+
+    .icon {
+      width: 48px;
+      height: 48px;
+      margin-bottom: 22px;
+      display: grid;
+      place-items: center;
+      border-radius: 18px;
+      background: linear-gradient(135deg, rgba(138, 99, 255, .9), rgba(34, 211, 238, .85));
+      box-shadow: 0 15px 32px rgba(34, 211, 238, 0.18);
+    }
+
+    .card h3 {
+      font-size: 22px;
+      margin-bottom: 12px;
+    }
+
+    .card p {
+      color: var(--muted);
+      line-height: 1.75;
+    }
+
+    .showcase {
+      display: grid;
+      grid-template-columns: 0.9fr 1.1fr;
+      gap: 24px;
+      align-items: stretch;
+    }
+
+    .quote {
+      padding: 34px;
+      border: 1px solid var(--line);
+      border-radius: 34px;
+      background: linear-gradient(135deg, rgba(138, 99, 255, 0.16), rgba(255, 255, 255, 0.07));
+    }
+
+    .quote p {
+      color: #e8ecff;
+      font-size: 24px;
+      line-height: 1.55;
+      letter-spacing: -0.02em;
+    }
+
+    .timeline {
+      display: grid;
+      gap: 14px;
+    }
+
+    .step {
+      display: grid;
+      grid-template-columns: auto 1fr;
+      gap: 16px;
+      padding: 20px;
+      border: 1px solid var(--line);
+      border-radius: 24px;
+      background: rgba(255, 255, 255, 0.065);
+    }
+
+    .step b {
+      width: 38px;
+      height: 38px;
+      display: grid;
+      place-items: center;
+      border-radius: 14px;
+      background: rgba(34, 211, 238, 0.16);
+      color: #91f4ff;
+    }
+
+    .step h4 {
+      margin-bottom: 6px;
+      font-size: 18px;
+    }
+
+    .step p {
+      color: var(--muted);
+      line-height: 1.65;
+    }
+
+    .cta {
+      margin: 68px 0 28px;
+      padding: 44px;
+      border: 1px solid var(--line);
+      border-radius: 38px;
+      background:
+        linear-gradient(135deg, rgba(138, 99, 255, 0.32), rgba(34, 211, 238, 0.16)),
+        rgba(255, 255, 255, 0.07);
+      text-align: center;
+      box-shadow: var(--shadow);
+    }
+
+    .cta h2 {
+      font-size: clamp(30px, 4vw, 54px);
+      letter-spacing: -0.05em;
+      margin-bottom: 16px;
+    }
+
+    .cta p {
+      max-width: 680px;
+      margin: 0 auto 26px;
+      color: var(--muted);
+      line-height: 1.8;
+    }
+
+    footer {
+      padding: 26px 0 46px;
+      color: var(--muted);
+      text-align: center;
+      font-size: 14px;
+    }
+
+    @media (max-width: 900px) {
+      .hero,
+      .showcase {
+        grid-template-columns: 1fr;
+      }
+
+      .visual {
+        min-height: 560px;
+      }
+
+      .cards {
+        grid-template-columns: 1fr;
+      }
+
+      .links {
+        display: none;
+      }
+    }
+
+    @media (max-width: 560px) {
+      .container {
+        width: min(100% - 24px, 1180px);
+      }
+
+      .hero {
+        padding-top: 58px;
+      }
+
+      .panel {
+        position: relative;
+        inset: auto;
+      }
+
+      .floating-card {
+        position: relative;
+        left: auto;
+        bottom: auto;
+        width: 100%;
+        margin-top: 16px;
+      }
+
+      .visual {
+        min-height: auto;
+      }
+
+      .cta {
+        padding: 30px 20px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="aurora"></div>
+  <div class="aurora two"></div>
+
+  <header class="container">
+    <nav class="nav">
+      <div class="brand"><span class="logo"></span>星河灵感馆</div>
+      <div class="links">
+        <a href="#features">亮点</a>
+        <a href="#process">流程</a>
+        <a href="#contact">开始</a>
+      </div>
+    </nav>
+  </header>
+
+  <main>
+    <section class="container hero">
+      <div>
+        <div class="badge"><span class="dot"></span>全新视觉系统 · 单文件可直接打开</div>
+        <h1>把想法变成 <span class="gradient-text">令人心动的数字体验</span></h1>
+        <p>这是一份精美的响应式 HTML 落地页，融合玻璃拟态、霓虹渐变、浮动卡片和细腻动效。无需任何外部依赖，保存后即可在浏览器中预览。</p>
+        <div class="actions">
+          <a class="btn primary" href="#contact">立即探索</a>
+          <a class="btn secondary" href="#features">查看亮点</a>
+        </div>
+      </div>
+
+      <div class="visual" aria-label="产品数据展示">
+        <div class="panel">
+          <div class="window-bar">
+            <div class="lights"><span></span><span></span><span></span></div>
+            <span>Live Dashboard</span>
+          </div>
+          <div class="metric">
+            <div><strong>创意生成</strong><span>从灵感捕捉到页面成型，一站式高效完成。</span></div>
+            <div class="number">98%</div>
+          </div>
+          <div class="metric">
+            <div><strong>视觉质感</strong><span>多层渐变、柔和阴影和透明玻璃卡片。</span></div>
+            <div class="number">4.9</div>
+          </div>
+          <div class="metric">
+            <div><strong>响应式布局</strong><span>桌面端、平板与手机均拥有舒适阅读体验。</span></div>
+            <div class="number">3x</div>
+          </div>
+        </div>
+
+        <div class="floating-card">
+          <div class="ring"></div>
+          <strong>完成度提升</strong>
+          <p style="margin-top: 8px; color: var(--muted); line-height: 1.7;">通过清晰结构和精致动效，让页面第一眼就足够吸引人。</p>
+        </div>
+      </div>
+    </section>
+
+    <section id="features" class="container section">
+      <div class="section-title">
+        <h2>设计不只是好看，更要让人愿意停留。</h2>
+        <p>页面包含完整首屏、功能卡片、流程展示和行动号召区域，适合改造成产品官网、个人作品集、活动页或 AI 工具介绍页。</p>
+      </div>
+
+      <div class="cards">
+        <article class="card">
+          <div class="icon">✦</div>
+          <h3>高级视觉层次</h3>
+          <p>使用暗色宇宙背景、渐变光晕、玻璃卡片与细网格纹理，营造科技感和空间感。</p>
+        </article>
+        <article class="card">
+          <div class="icon">⌁</div>
+          <h3>流畅微动效</h3>
+          <p>按钮悬浮、光带扫过、卡片浮动和脉冲提示，让页面更生动但不过度打扰。</p>
+        </article>
+        <article class="card">
+          <div class="icon">▣</div>
+          <h3>单文件交付</h3>
+          <p>CSS 已全部内联在 HTML 中，不依赖框架和 CDN，复制、移动、部署都非常方便。</p>
+        </article>
+      </div>
+    </section>
+
+    <section id="process" class="container section">
+      <div class="showcase">
+        <div class="quote">
+          <p>“好的页面像一束光：它先抓住注意力，再用清晰的信息结构引导用户做出行动。”</p>
+        </div>
+        <div class="timeline">
+          <div class="step"><b>01</b><div><h4>明确主题</h4><p>将品牌、产品或作品集的核心价值放在首屏，形成清晰记忆点。</p></div></div>
+          <div class="step"><b>02</b><div><h4>强化信任</h4><p>用数据卡片、功能亮点和流程说明，让访客快速理解页面价值。</p></div></div>
+          <div class="step"><b>03</b><div><h4>引导行动</h4><p>在合适位置放置按钮和行动号召，让页面从展示变成转化入口。</p></div></div>
+        </div>
+      </div>
+    </section>
+
+    <section id="contact" class="container">
+      <div class="cta">
+        <h2>现在就打开这个页面，看看它的效果。</h2>
+        <p>你可以继续把文案、品牌名、配色或模块内容替换成自己的项目，也可以扩展为完整官网。</p>
+        <a class="btn primary" href="#">回到顶部</a>
+      </div>
+    </section>
+  </main>
+
+  <footer class="container">
+    © 2026 星河灵感馆 · Crafted with pure HTML & CSS
+  </footer>
+</body>
+</html>

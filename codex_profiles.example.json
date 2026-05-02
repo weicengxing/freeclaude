@@ -1,0 +1,51 @@
+{
+    "selection_strategy":  "sequential_failover",
+    "active_profile":  "local_codex",
+    "token_maintenance":  {
+                              "enabled":  true,
+                              "check_interval_seconds":  3600,
+                              "refresh_interval_days":  8
+                          },
+    "request_defaults":  {
+                             "base_url":  "https://chatgpt.com/backend-api/codex",
+                             "model":  "gpt-5.5",
+                             "reasoning_effort":  "high",
+                             "instructions":  "You are a coding agent running in the Codex client. Be precise, safe, and helpful.",
+                             "stream":  true,
+                             "store":  false,
+                             "shell_tool":  false,
+                             "include_encrypted_reasoning":  false,
+                             "timeout":  300
+                         },
+    "profiles":  [
+                     {
+                         "name":  "local_codex",
+                         "auth_mode":  "chatgpt",
+                         "OPENAI_API_KEY":  null,
+                         "tokens":  {
+                                        "access_token":  "PASTE_ACCESS_TOKEN_HERE",
+                                        "account_id":  "PASTE_ACCOUNT_ID_HERE",
+                                        "id_token":  "PASTE_ID_TOKEN_HERE",
+                                        "refresh_token":  "PASTE_REFRESH_TOKEN_HERE"
+                                    },
+                         "base_url":  "",
+                         "model":  "",
+                         "reasoning_effort":  ""
+                     },
+                     {
+                         "name":  "second_codex",
+                         "auth_mode":  "chatgpt",
+                         "OPENAI_API_KEY":  null,
+                         "tokens":  {
+                                        "access_token":  "PASTE_SECOND_ACCESS_TOKEN_HERE",
+                                        "account_id":  "PASTE_SECOND_ACCOUNT_ID_HERE",
+                                        "id_token":  "PASTE_SECOND_ID_TOKEN_HERE",
+                                        "refresh_token":  "PASTE_SECOND_REFRESH_TOKEN_HERE"
+                                    },
+                         "base_url":  "",
+                         "model":  "",
+                         "reasoning_effort":  "",
+                         "last_refresh":  "2026-05-02T00:00:00Z"
+                     }
+                 ]
+}

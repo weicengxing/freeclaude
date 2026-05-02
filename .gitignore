@@ -1,3 +1,8 @@
 __pycache__/
 *.py[cod]
 chat_app.db
+auth.json
+chat_profiles.json
+codex_profiles.json
+codex_service.out.log
+codex_service.err.log
